@@ -483,6 +483,27 @@ function generarId(prefix) {
   return prefix + Date.now() + Math.random().toString(36).slice(2,6).toUpperCase();
 }
 
+// ── ID DE CONSULTA: ddmmaa + orden del día (ej: 08062601) ──
+function generarIdConsulta() {
+  const now   = new Date();
+  const dd    = String(now.getDate()).padStart(2,'0');
+  const mm    = String(now.getMonth()+1).padStart(2,'0');
+  const aa    = String(now.getFullYear()).slice(2);
+  const base  = `${dd}${mm}${aa}`;
+
+  // Contar cuántas consultas ya existen hoy
+  const hoy = S.conversaciones.filter(c => (c.idConsulta||'').startsWith(base));
+  const orden = String(hoy.length + 1).padStart(2,'0');
+  return base + orden;
+}
+
+// ── NOMBRE PARA GOOGLE CONTACTS ──
+function buildNombreContacto(conv) {
+  const id = conv.idConsulta || generarIdConsulta();
+  const nombre = (conv.nombre || '').trim();
+  return nombre ? `${nombre} ${id}` : id;
+}
+
 function fechaHoy() {
   return new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
 }
@@ -497,6 +518,139 @@ function timestampAhora() {
 
 function formatPeso(n) {
   return '$' + Number(n).toLocaleString('es-AR');
+}
+
+// ══════════════════════════════════════════════
+//  GOOGLE CONTACTS API
+// ══════════════════════════════════════════════
+
+// Obtener access token desde refresh token via Cloudflare Worker
+// (el Worker protege el client_secret que no debe exponerse en el frontend)
+async function getGoogleAccessToken() {
+  const cfg = S.config.google;
+  if (!cfg?.refreshToken || !cfg?.clientId || !cfg?.clientSecret) return null;
+  try {
+    const r = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id:     cfg.clientId,
+        client_secret: cfg.clientSecret,
+        refresh_token: cfg.refreshToken,
+        grant_type:    'refresh_token'
+      })
+    });
+    const data = await r.json();
+    return data.access_token || null;
+  } catch(e) {
+    console.error('Google token error:', e);
+    return null;
+  }
+}
+
+// Buscar contacto en Google por número de teléfono
+async function buscarContactoGoogle(phone, token) {
+  if (!token) return null;
+  try {
+    const phoneNorm = normalizarTelefono(phone);
+    const r = await fetch(
+      `https://people.googleapis.com/v1/people:searchContacts?query=${encodeURIComponent(phone)}&readMask=names,phoneNumbers,metadata`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await r.json();
+    const resultados = data.results || [];
+    const match = resultados.find(res =>
+      (res.person?.phoneNumbers||[]).some(p => normalizarTelefono(p.value||'') === phoneNorm)
+    );
+    return match?.person || null;
+  } catch(e) {
+    console.error('Google search error:', e);
+    return null;
+  }
+}
+
+// Crear contacto nuevo en Google Contacts
+async function crearContactoGoogle(conv, token) {
+  if (!token) return null;
+  const nombreGoogle = buildNombreContacto(conv);
+  const body = {
+    names: [{ givenName: nombreGoogle }],
+    phoneNumbers: [{ value: conv.phone, type: 'mobile' }]
+  };
+  if (conv.email) body.emailAddresses = [{ value: conv.email }];
+  try {
+    const r = await fetch('https://people.googleapis.com/v1/people:createContact', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    return await r.json();
+  } catch(e) {
+    console.error('Google create contact error:', e);
+    return null;
+  }
+}
+
+// Actualizar contacto existente en Google Contacts
+async function actualizarContactoGoogle(resourceName, conv, token) {
+  if (!token || !resourceName) return null;
+  const nombreGoogle = buildNombreContacto(conv);
+  try {
+    // Primero obtener etag actual
+    const getR = await fetch(
+      `https://people.googleapis.com/v1/${resourceName}?personFields=names,phoneNumbers,emailAddresses`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const persona = await getR.json();
+    persona.names = [{ givenName: nombreGoogle.split(' ')[0], familyName: nombreGoogle.split(' ').slice(1).join(' ') || '' }];
+    if (conv.email) persona.emailAddresses = [{ value: conv.email }];
+    const r = await fetch(
+      `https://people.googleapis.com/v1/${resourceName}:updateContact?updatePersonFields=names,emailAddresses`,
+      { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(persona) }
+    );
+    return await r.json();
+  } catch(e) {
+    console.error('Google update contact error:', e);
+    return null;
+  }
+}
+
+// Función principal: crear o actualizar contacto automáticamente
+async function sincronizarConGoogleContacts(conv, forzarActualizar) {
+  const token = await getGoogleAccessToken();
+  if (!token) {
+    console.warn('Google Contacts no configurado o sin token');
+    return false;
+  }
+
+  // Buscar si ya existe
+  const existente = await buscarContactoGoogle(conv.phone, token);
+  if (existente && !forzarActualizar) return true; // ya está, no tocar
+
+  if (existente) {
+    // Actualizar
+    const resourceName = existente.resourceName;
+    await actualizarContactoGoogle(resourceName, conv, token);
+    showToast('Contacto actualizado en Google');
+  } else {
+    // Crear nuevo
+    await crearContactoGoogle(conv, token);
+    showToast('Contacto creado en Google');
+  }
+  return true;
+}
+
+// Auto-agendar nueva consulta entrante
+async function autoAgendarNuevaConsulta(conv) {
+  // Generar ID si no tiene
+  if (!conv.idConsulta) {
+    conv.idConsulta = generarIdConsulta();
+    // Guardar ID en la conversación
+    const idx = S.conversaciones.findIndex(c => c.phone === conv.phone);
+    if (idx >= 0) S.conversaciones[idx].idConsulta = conv.idConsulta;
+    saveToFirebase('crmw_conversaciones', S.conversaciones);
+  }
+  await sincronizarConGoogleContacts(conv, false);
 }
 
 function hashSHA256(str) {

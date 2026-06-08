@@ -75,9 +75,15 @@ function abrirConversacion(phone) {
   conv.unread = 0;
   saveToFirebase('crmw_conversaciones', S.conversaciones);
 
+  // Auto-agendar si es la primera vez que se abre y Google está configurado
+  if (!conv.agendado && S.config.google?.refreshToken && S.config.google?.autoAgendar !== '0') {
+    conv.agendado = true;
+    autoAgendarNuevaConsulta(conv); // async, no bloquea UI
+  }
+
   // Activar item en lista
   document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
-  event.currentTarget?.classList.add('active');
+  event?.currentTarget?.classList.add('active');
 
   // Mostrar chat activo
   document.getElementById('chat-placeholder').style.display = 'none';
@@ -87,7 +93,7 @@ function abrirConversacion(phone) {
 
   // Header
   const initials = obtenerIniciales(conv.nombre || conv.phone);
-  const avClass = colorAvatar(conv.phone);
+  const avClass  = colorAvatar(conv.phone);
   document.getElementById('chat-hdr-avatar').textContent = initials;
   document.getElementById('chat-hdr-avatar').className = `chat-header-avatar ${avClass}`;
   document.getElementById('chat-hdr-name').textContent = conv.nombre || conv.phone;
@@ -850,39 +856,143 @@ function actualizarCliente() {
 }
 
 // ── AGENDAR EN GOOGLE CONTACTS ──
-function agendarContacto() {
+async function agendarContacto() {
   if (!S.convActiva) return;
   const nombre = prompt('Nombre para agendar:', S.convActiva.nombre || '');
   if (nombre === null) return;
 
-  // Actualizar nombre en conversación
   const conv = S.conversaciones.find(c => c.phone === S.convActiva.phone);
-  if (conv) conv.nombre = nombre;
-  S.convActiva.nombre = nombre;
 
-  // Guardar en Firebase (datos básicos del cliente)
+  // Generar ID de consulta si no tiene
+  if (!conv?.idConsulta) {
+    const id = generarIdConsulta();
+    if (conv) conv.idConsulta = id;
+    S.convActiva.idConsulta = id;
+  }
+
+  // Actualizar nombre
+  const nombreFinal = nombre.trim();
+  if (conv) conv.nombre = nombreFinal;
+  S.convActiva.nombre = nombreFinal;
+
+  // Guardar en Firebase
   const datos = obtenerDatosFormCliente();
-  datos.firstName = nombre.split(' ')[0] || nombre;
-  datos.lastName  = nombre.split(' ').slice(1).join(' ') || '';
-  datos.nombre    = nombre;
+  datos.firstName = nombreFinal.split(' ')[0] || nombreFinal;
+  datos.lastName  = nombreFinal.split(' ').slice(1).join(' ') || '';
+  datos.nombre    = nombreFinal;
 
   const phone = normalizarTelefono(datos.whatsapp);
   let cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
   if (!cliente) {
     S.clientes.push(datos);
   } else {
-    cliente.nombre    = nombre;
+    cliente.nombre    = nombreFinal;
     cliente.firstName = datos.firstName;
     cliente.lastName  = datos.lastName;
   }
   saveToFirebase('clientes', S.clientes);
   saveToFirebase('crmw_conversaciones', S.conversaciones);
 
-  // Actualizar panel
-  document.getElementById('panel-nombre').textContent = nombre;
-  document.getElementById('chat-hdr-name').textContent = nombre;
+  // Actualizar panel visual
+  document.getElementById('panel-nombre').textContent = nombreFinal;
+  document.getElementById('chat-hdr-name').textContent = nombreFinal;
 
-  showToast('Contacto agendado y guardado en CRM');
+  // Sincronizar con Google Contacts
+  if (S.config.google?.refreshToken) {
+    showToast('Agendando en Google Contacts...', 'warn');
+    await sincronizarConGoogleContacts(conv || S.convActiva, false);
+  } else {
+    showToast('Contacto guardado en CRM');
+  }
+}
+
+// ── EDITAR CONTACTO ──
+function editarContactoGoogle() {
+  if (!S.convActiva) return;
+  const phone   = normalizarTelefono(S.convActiva.phone);
+  const cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const conv    = S.conversaciones.find(c => c.phone === S.convActiva.phone);
+  const idConsulta = conv?.idConsulta || S.convActiva.idConsulta || '—';
+
+  // Mostrar ID en el modal
+  const idEl = document.getElementById('edit-contacto-id-display');
+  if (idEl) idEl.textContent = `ID de consulta: ${idConsulta}  ·  Tel: ${S.convActiva.phone}`;
+
+  // Pre-llenar formulario
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val||''; };
+  set('edit-c-nombre',    cliente?.firstName || S.convActiva.nombre?.split(' ')[0] || '');
+  set('edit-c-apellido',  cliente?.lastName  || S.convActiva.nombre?.split(' ').slice(1).join(' ') || '');
+  set('edit-c-dni',       cliente?.dni       || '');
+  set('edit-c-email',     cliente?.email     || '');
+  set('edit-c-domicilio', cliente?.domicilio || '');
+  set('edit-c-localidad', cliente?.localidad || 'Córdoba');
+  set('edit-c-provincia', cliente?.provincia || 'Córdoba');
+  set('edit-c-cp',        cliente?.cp        || '5000');
+  if (cliente?.iva) document.getElementById('edit-c-iva').value = cliente.iva;
+
+  abrirModal('modal-editar-contacto');
+}
+
+async function guardarEdicionContacto() {
+  if (!S.convActiva) return;
+  const phone    = normalizarTelefono(S.convActiva.phone);
+  const nombreN  = document.getElementById('edit-c-nombre').value.trim();
+  const apellidoN= document.getElementById('edit-c-apellido').value.trim();
+  const nombreCompleto = [nombreN, apellidoN].filter(Boolean).join(' ');
+
+  // Actualizar nombre en conversación
+  const conv = S.conversaciones.find(c => c.phone === S.convActiva.phone);
+  if (conv && nombreCompleto) {
+    conv.nombre = nombreCompleto;
+    S.convActiva.nombre = nombreCompleto;
+  }
+
+  // Actualizar o crear cliente en Firebase
+  let cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const datosNuevos = {
+    firstName: nombreN,
+    lastName:  apellidoN,
+    nombre:    nombreCompleto,
+    dni:       document.getElementById('edit-c-dni').value,
+    email:     document.getElementById('edit-c-email').value,
+    domicilio: document.getElementById('edit-c-domicilio').value,
+    localidad: document.getElementById('edit-c-localidad').value,
+    provincia: document.getElementById('edit-c-provincia').value,
+    cp:        document.getElementById('edit-c-cp').value,
+    iva:       document.getElementById('edit-c-iva').value,
+    whatsapp:  S.convActiva.phone,
+    canal:     'WhatsApp'
+  };
+
+  if (cliente) {
+    Object.assign(cliente, datosNuevos);
+  } else {
+    datosNuevos.id = generarId('C');
+    S.clientes.push(datosNuevos);
+  }
+
+  await saveToFirebase('clientes', S.clientes);
+  await saveToFirebase('crmw_conversaciones', S.conversaciones);
+
+  // Actualizar panel visual
+  if (nombreCompleto) {
+    document.getElementById('panel-nombre').textContent = nombreCompleto;
+    document.getElementById('chat-hdr-name').textContent = nombreCompleto;
+    // Actualizar campos del formulario lateral
+    document.getElementById('c-nombre').value  = nombreN;
+    document.getElementById('c-apellido').value = apellidoN;
+  }
+
+  // Sincronizar con Google si está configurado y el checkbox está marcado
+  const syncGoogle = document.getElementById('edit-sync-google')?.checked;
+  if (syncGoogle && S.config.google?.refreshToken) {
+    showToast('Sincronizando con Google Contacts...', 'warn');
+    await sincronizarConGoogleContacts(conv || S.convActiva, true); // forzar actualización
+  } else {
+    showToast('Contacto actualizado en CRM');
+  }
+
+  cerrarModal('modal-editar-contacto');
 }
 
 // ── CREAR LEAD ──
@@ -1384,15 +1494,23 @@ function renderPendientes() {
   const container = document.getElementById('pend-inner');
   if (!container || !S.usuario) return;
 
-  const misEmail = S.usuario.email;
+  const misEmail    = S.usuario.email;
   const misBusquedas = S.busquedas.filter(b => b.operador === misEmail && !b.terminada);
   const misTareas    = S.tareas.filter(t => t.operador === misEmail && !t.realizada);
 
   let html = '';
 
+  // ── NODAL BÚSQUEDA ──
+  // Izq: nombre | tipo | rango     Der: Propuesta 1 | Propuesta 2 | Propuesta 3
   misBusquedas.forEach(b => {
-    const conv = S.conversaciones.find(c => c.phone === b.phone);
+    const conv   = S.conversaciones.find(c => c.phone === b.phone);
     const nombre = conv?.nombre || b.phone;
+
+    const props = [b.prop1, b.prop2, b.prop3].filter(Boolean);
+    const propHTML = props.length
+      ? props.map(p => `<div class="nodal-prop">${escHtml(p)}</div>`).join('')
+      : '<div class="nodal-prop" style="color:var(--text3);font-style:italic;">Sin propuestas</div>';
+
     html += `<div class="nodal busqueda" draggable="true"
       data-id="${b.id}" data-tipo="busqueda"
       onclick="abrirDesdeNodal('${b.phone}')"
@@ -1401,19 +1519,23 @@ function renderPendientes() {
       ondragend="dragEndNodal(this)"
       ondragover="dragOverNodal(event,this)"
       ondrop="dropNodal(event,this)">
-      <div class="nodal-type">Búsqueda</div>
-      <div class="nodal-name">${escHtml(nombre)}</div>
-      ${b.tipo ? `<div class="nodal-sub">${escHtml(b.tipo)}</div>` : ''}
-      ${b.prop1 ? `<div class="nodal-sub" style="font-size:10px;color:var(--nodal-busqueda-text);">${escHtml(b.prop1)}</div>` : ''}
-      ${b.prop2 ? `<div class="nodal-sub" style="font-size:10px;color:var(--nodal-busqueda-text);">${escHtml(b.prop2)}</div>` : ''}
-      ${b.prop3 ? `<div class="nodal-sub" style="font-size:10px;color:var(--nodal-busqueda-text);">${escHtml(b.prop3)}</div>` : ''}
-      <div class="nodal-tags">
-        ${b.rango ? `<span class="nodal-tag price">${escHtml(b.rango.slice(0,18))}</span>` : ''}
+      <div class="nodal-left">
+        <div class="nodal-name">${escHtml(nombre)}</div>
+        ${b.tipo  ? `<div class="nodal-cat">${escHtml(b.tipo)}</div>` : ''}
+        ${b.rango ? `<div class="nodal-rango">${escHtml(b.rango)}</div>` : ''}
+      </div>
+      <div class="nodal-right">
+        ${propHTML}
       </div>
     </div>`;
   });
 
+  // ── NODAL TAREA ──
+  // Izq: título | fecha+hora creación     Der: descripción
   misTareas.forEach(t => {
+    const fechaCreacion = t.fecha || fechaHoy();
+    const horaCreacion  = t.horaCreacion || '';
+
     html += `<div class="nodal tarea" draggable="true"
       data-id="${t.id}" data-tipo="tarea"
       ondblclick="abrirDetalleTarea('${t.id}')"
@@ -1422,11 +1544,12 @@ function renderPendientes() {
       ondragend="dragEndNodal(this)"
       ondragover="dragOverNodal(event,this)"
       ondrop="dropNodal(event,this)">
-      <div class="nodal-type">Tarea</div>
-      <div class="nodal-name">${escHtml(t.titulo)}</div>
-      <div class="nodal-sub">${escHtml((t.detalles||'').slice(0,60))}</div>
-      <div class="nodal-tags">
-        <span class="nodal-tag date">${t.fecha||''}</span>
+      <div class="nodal-left">
+        <div class="nodal-name">${escHtml(t.titulo)}</div>
+        <div class="nodal-date">${fechaCreacion}${horaCreacion ? ' · '+horaCreacion : ''}</div>
+      </div>
+      <div class="nodal-right">
+        <div class="nodal-prop">${escHtml((t.detalles||'Sin descripción').slice(0,80))}</div>
       </div>
     </div>`;
   });

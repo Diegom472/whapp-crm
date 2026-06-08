@@ -240,13 +240,14 @@ function guardarTarea() {
     if (t) { t.titulo = titulo; t.detalles = detalles; }
   } else {
     S.tareas.push({
-      id:        generarId('T'),
+      id:           generarId('T'),
       titulo,
       detalles,
-      operador:  S.usuario.email,
-      fecha:     fechaHoy(),
-      createdAt: Date.now(),
-      realizada: false
+      operador:     S.usuario.email,
+      fecha:        fechaHoy(),
+      horaCreacion: horaAhora(),
+      createdAt:    Date.now(),
+      realizada:    false
     });
   }
 
@@ -393,6 +394,51 @@ function cargarConfigAdmin() {
   set('fb-appid',    S.config.firebaseAppId);
   set('msg-compra',  S.config.msgCompra);
   set('msg-listo',   S.config.msgListo);
+  // Google
+  const g = S.config.google || {};
+  set('google-client-id',     g.clientId);
+  set('google-client-secret', g.clientSecret);
+  set('google-refresh-token', g.refreshToken);
+  const autoEl = document.getElementById('google-auto-agendar');
+  if (autoEl) autoEl.value = g.autoAgendar || '1';
+  actualizarEstadoGoogle();
+}
+
+function guardarConfigGoogle() {
+  S.config.google = {
+    clientId:     document.getElementById('google-client-id').value.trim(),
+    clientSecret: document.getElementById('google-client-secret').value.trim(),
+    refreshToken: document.getElementById('google-refresh-token').value.trim(),
+    autoAgendar:  document.getElementById('google-auto-agendar').value
+  };
+  saveLocal();
+  actualizarEstadoGoogle();
+  showToast('Configuración Google guardada');
+}
+
+function actualizarEstadoGoogle() {
+  const el = document.getElementById('google-status');
+  if (!el) return;
+  const g = S.config.google;
+  if (g?.clientId && g?.clientSecret && g?.refreshToken) {
+    el.innerHTML = '<span style="color:var(--green);">✓ Configurado</span> — los contactos se agendarán automáticamente';
+  } else {
+    el.innerHTML = '<span style="color:var(--text3);">Sin configurar</span>';
+  }
+}
+
+async function testGoogleContacts() {
+  const statusEl = document.getElementById('google-status');
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber);">Probando conexión...</span>';
+  guardarConfigGoogle();
+  const token = await getGoogleAccessToken();
+  if (token) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--green);">✓ Conexión exitosa</span> — Token válido';
+    showToast('Google Contacts conectado correctamente');
+  } else {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--accent);">✗ Error de conexión</span> — Verificá las credenciales';
+    showToast('Error: verificá Client ID, Secret y Refresh Token', 'error');
+  }
 }
 
 function guardarConfigWA() {
