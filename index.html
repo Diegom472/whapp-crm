@@ -167,15 +167,16 @@
               </div>
             </div>
             <div class="collapse-body open" id="body-busqueda">
-              <div class="busqueda-panel">
-                <!-- Fila 1: Palabras Clave (izq) | Tipo PC (der) -->
-                <div class="busqueda-row">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <!-- Columna izquierda: Palabras Clave textarea grande -->
+                <div class="field-group">
+                  <label class="field-label">Palabras Clave</label>
+                  <textarea class="field-input" id="b-palabras" rows="7" placeholder="Escribir..." oninput="autosaveBusqueda()" style="resize:none;height:100%;min-height:160px;"></textarea>
+                </div>
+                <!-- Columna derecha: tipo, rango, propuestas apilados -->
+                <div style="display:flex;flex-direction:column;gap:6px;">
                   <div class="field-group">
-                    <label class="field-label">Palabras Clave</label>
-                    <input class="field-input" id="b-palabras" type="text" placeholder="Escribir..." oninput="autosaveBusqueda()">
-                  </div>
-                  <div class="field-group">
-                    <label class="field-label">GAMER / Prof / Otros</label>
+                    <label class="field-label">GAMER / Profesional / otros</label>
                     <select class="field-select" id="b-tipo" onchange="autosaveBusqueda()">
                       <option value="">— Seleccionar —</option>
                       <option>GAMER ALTA</option>
@@ -187,38 +188,26 @@
                       <option>OTROS</option>
                     </select>
                   </div>
-                </div>
-                <!-- Fila 2: $ Rango -->
-                <div class="busqueda-row full">
                   <div class="field-group">
                     <label class="field-label">$ Rango</label>
-                    <input class="field-input" id="b-rango" type="text" placeholder="Ej: $1.000.000 – $1.500.000" oninput="autosaveBusqueda()">
+                    <input class="field-input" id="b-rango" type="text" placeholder="$ Rango" oninput="autosaveBusqueda()">
                   </div>
-                </div>
-                <!-- Fila 3: Propuesta 1 -->
-                <div class="busqueda-row full">
                   <div class="field-group">
                     <label class="field-label">Propuesta 1</label>
-                    <input class="field-input" id="b-prop1" type="text" placeholder="Propuesta 1..." oninput="autosaveBusqueda()">
+                    <input class="field-input" id="b-prop1" type="text" placeholder="Propuesta 1" oninput="autosaveBusqueda()">
                   </div>
-                </div>
-                <!-- Fila 4: Propuesta 2 -->
-                <div class="busqueda-row full">
                   <div class="field-group">
                     <label class="field-label">Propuesta 2</label>
-                    <input class="field-input" id="b-prop2" type="text" placeholder="Propuesta 2..." oninput="autosaveBusqueda()">
+                    <input class="field-input" id="b-prop2" type="text" placeholder="Propuesta 2" oninput="autosaveBusqueda()">
                   </div>
-                </div>
-                <!-- Fila 5: Propuesta 3 -->
-                <div class="busqueda-row full">
                   <div class="field-group">
                     <label class="field-label">Propuesta 3</label>
-                    <input class="field-input" id="b-prop3" type="text" placeholder="Propuesta 3..." oninput="autosaveBusqueda()">
+                    <input class="field-input" id="b-prop3" type="text" placeholder="Propuesta 3" oninput="autosaveBusqueda()">
                   </div>
                 </div>
               </div>
-              <div class="busqueda-actions">
-                <button class="mini-btn primary" onclick="guardarNuevaBusqueda()">+ Guardar Nueva</button>
+              <div class="busqueda-actions" style="margin-top:8px;">
+                <button class="mini-btn primary" onclick="guardarNuevaBusqueda()">Guardar Nueva</button>
                 <button class="mini-btn" onclick="actualizarBusqueda()">Actualizar</button>
                 <button class="mini-btn" onclick="abrirHistorialBusqueda()">Ver Historial</button>
                 <button class="mini-btn success" onclick="finalizarBusqueda()">Finalizar</button>
@@ -303,6 +292,11 @@
               <div class="comp-list" id="comp-list">
                 <div style="text-align:center;padding:14px 0;color:var(--text3);font-size:12px;">Sin comprobantes</div>
               </div>
+              <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+                <button class="bar-btn compra" style="flex:1;min-width:100px;" onclick="abrirNuevaCompra()"><i class="ti ti-shopping-cart"></i> Nueva compra</button>
+                <button class="bar-btn servicio" style="flex:1;min-width:100px;" onclick="abrirNuevoServicio()"><i class="ti ti-tool"></i> Servicio</button>
+                <button class="bar-btn listo" style="flex:1;min-width:100px;" onclick="marcarPedidoListo()"><i class="ti ti-check"></i> Pedido listo</button>
+              </div>
             </div>
           </div>
 
@@ -345,13 +339,6 @@
                 <div style="text-align:center;padding:10px 0;color:var(--text3);font-size:12px;">Sin archivos adjuntos</div>
               </div>
             </div>
-          </div>
-
-          <!-- Barra inferior -->
-          <div class="bottom-bar">
-            <button class="bar-btn compra" onclick="abrirNuevaCompra()"><i class="ti ti-shopping-cart"></i> Nueva compra</button>
-            <button class="bar-btn servicio" onclick="abrirNuevoServicio()"><i class="ti ti-tool"></i> Servicio</button>
-            <button class="bar-btn listo" onclick="marcarPedidoListo()"><i class="ti ti-check"></i> Listo</button>
           </div>
 
         </div><!-- /panel-info-inner -->
@@ -408,7 +395,7 @@
     <div class="tareas-container">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
         <h1 style="font-family:var(--font-cond);font-weight:900;font-size:22px;text-transform:uppercase;">Tareas</h1>
-        <button class="btn btn-primary btn-sm" onclick="abrirNuevaTarea()"><i class="ti ti-plus"></i> Nueva tarea</button>
+        <button class="btn btn-primary" style="font-size:16px;padding:12px 28px;" onclick="abrirNuevaTarea()"><i class="ti ti-plus"></i> Nueva tarea</button>
       </div>
       <div class="tareas-block">
         <div class="tareas-block-header">
@@ -716,20 +703,23 @@
     </div>
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Fecha y hora</label>
-        <input class="form-input" id="prog-datetime" type="datetime-local">
+        <label class="form-label">Fecha</label>
+        <input class="form-input" id="prog-date" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Hora</label>
+        <input class="form-input" id="prog-time" type="time" step="60">
       </div>
       <div class="form-group">
         <label class="form-label">Título</label>
         <input class="form-input" id="prog-titulo" type="text" placeholder="Duda R7 vs R5...">
       </div>
-      <div class="form-group full">
+      <div class="form-group">
         <label class="form-label">Descripción corta</label>
         <input class="form-input" id="prog-desc" type="text" placeholder="Se muestra en el nodal...">
       </div>
     </div>
     <div id="prog-mensajes-container">
-      <!-- Mensajes dinámicos -->
       <div class="form-group" style="margin-top:10px;">
         <label class="form-label">Mensaje 1</label>
         <textarea class="form-input" id="prog-msg-1" rows="3" placeholder="Texto del mensaje..."></textarea>
@@ -740,11 +730,10 @@
       </div>
     </div>
     <div style="margin-top:10px;">
-      <button class="btn btn-secondary btn-sm" onclick="agregarMensajeProg()"><i class="ti ti-plus"></i> Mensaje 2</button>
+      <button class="btn btn-secondary btn-sm" onclick="agregarMensajeProg()"><i class="ti ti-plus"></i> Agregar Mensaje 2</button>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" onclick="agendarMensaje()"><i class="ti ti-clock"></i> Agendar</button>
-      <button class="btn btn-secondary" onclick="actualizarMensajeProg()"><i class="ti ti-refresh"></i> Actualizar</button>
       <button class="btn btn-secondary" onclick="cerrarModal('modal-programado')">Cancelar</button>
     </div>
   </div>
@@ -759,8 +748,12 @@
     </div>
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Fecha y hora</label>
-        <input class="form-input" id="rec-datetime" type="datetime-local">
+        <label class="form-label">Fecha</label>
+        <input class="form-input" id="rec-date" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Hora</label>
+        <input class="form-input" id="rec-time" type="time" step="60">
       </div>
       <div class="form-group">
         <label class="form-label">Título</label>
