@@ -96,7 +96,7 @@
       </div>
 
       <!-- Chat activo (se muestra cuando hay conversación seleccionada) -->
-      <div id="chat-active" style="display:none;flex:1;display:flex;flex-direction:column;">
+      <div id="chat-active" style="display:none;flex:1;display:flex;flex-direction:column;min-height:0;">
         <div class="chat-header" id="chat-header">
           <div class="chat-header-avatar av-blue" id="chat-hdr-avatar">MR</div>
           <div class="chat-header-info">
@@ -104,67 +104,68 @@
             <div class="chat-header-sub" id="chat-hdr-sub"><span class="online-dot"></span> En línea</div>
           </div>
           <div class="chat-header-tags" id="chat-hdr-tags"></div>
-          <div class="chat-header-actions">
+          <div class="chat-header-actions" style="position:relative;">
             <button class="icon-btn" onclick="abrirBuscarEnChat()"><i class="ti ti-search"></i></button>
             <button class="icon-btn" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i> Adjuntar</button>
             <button class="icon-btn" id="btn-etiquetar" onclick="abrirEtiquetarModal()"><i class="ti ti-tag"></i> Etiquetar</button>
             <button class="icon-btn"><i class="ti ti-dots-vertical"></i></button>
+            <!-- Panel etiquetas anclado al header -->
+            <div class="etiquetas-panel" id="etiquetas-panel">
+              <div style="font-family:var(--font-cond);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;color:var(--text2);">Etiquetas</div>
+              <div id="etiquetas-chips"></div>
+              <div style="display:flex;gap:6px;margin-top:10px;">
+                <input class="field-input" id="nueva-etiqueta-input" type="text" placeholder="Nueva etiqueta..." style="flex:1;font-size:11px;">
+                <button class="mini-btn primary" onclick="agregarEtiqueta()">+</button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="chat-messages" id="chat-messages">
-          <!-- Mensajes se renderizan dinámicamente -->
-        </div>
+        <!-- Zona de mensajes: flex:1, scroll propio -->
+        <div class="chat-messages" id="chat-messages"></div>
 
-        <!-- Barra de grabación -->
-        <div class="audio-recording-bar" id="audio-recording-bar">
-          <div class="audio-rec-dot"></div>
-          <span class="audio-rec-time" id="audio-rec-time">0:00</span>
-          <div class="audio-waveform" id="audio-waveform">
-            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+        <!-- Input wrapper FIJO — nunca se mueve -->
+        <div class="chat-input-wrapper" id="chat-input-wrapper">
+
+          <!-- Barra de grabación activa -->
+          <div class="audio-recording-bar" id="audio-recording-bar">
+            <div class="audio-rec-dot"></div>
+            <span class="audio-rec-time" id="audio-rec-time">0:00</span>
+            <div class="audio-waveform" id="audio-waveform">
+              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+            </div>
+            <button class="chat-input-btn" title="Pausar y escuchar" id="btn-pause-audio" onclick="pausarAudio()"><i class="ti ti-player-pause"></i></button>
+            <button class="chat-input-btn" title="Cancelar" onclick="cancelarAudio()" style="color:var(--accent)"><i class="ti ti-x"></i></button>
           </div>
-          <button class="chat-input-btn" title="Pausar" id="btn-pause-audio" onclick="pausarAudio()" style="color:var(--amber)"><i class="ti ti-player-pause"></i></button>
-          <button class="chat-input-btn" title="Cancelar" onclick="cancelarAudio()" style="color:var(--accent)"><i class="ti ti-x"></i></button>
-          <button class="send-btn" title="Enviar audio" onclick="detenerYPrevisualizar()" style="background:var(--green)"><i class="ti ti-check"></i></button>
-        </div>
 
-        <!-- Preview de audio antes de enviar -->
-        <div class="audio-preview-bar" id="audio-preview-bar">
-          <span style="font-size:12px;font-weight:600;color:var(--text2);">Vista previa:</span>
-          <audio id="audio-preview-player" controls style="flex:1;height:32px;"></audio>
-          <button class="btn btn-success btn-sm" onclick="confirmarEnvioAudio()"><i class="ti ti-send"></i> Enviar</button>
-          <button class="btn btn-secondary btn-sm" onclick="cancelarPreviewAudio()"><i class="ti ti-trash"></i></button>
-        </div>
-
-        <!-- Panel emoticones -->
-        <div class="emoji-panel" id="emoji-panel">
-          <input class="emoji-search" id="emoji-search" type="text" placeholder="Buscar emoji..." oninput="filtrarEmojis(this.value)">
-          <div class="emoji-grid" id="emoji-grid"></div>
-        </div>
-
-        <!-- Panel etiquetas -->
-        <div class="etiquetas-panel" id="etiquetas-panel" style="position:absolute;top:50px;right:10px;">
-          <div style="font-family:var(--font-cond);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;color:var(--text2);">Etiquetas</div>
-          <div id="etiquetas-chips"></div>
-          <div style="display:flex;gap:6px;margin-top:10px;">
-            <input class="field-input" id="nueva-etiqueta-input" type="text" placeholder="Nueva etiqueta..." style="flex:1;font-size:11px;">
-            <button class="mini-btn primary" onclick="agregarEtiqueta()">+</button>
+          <!-- Barra pausado: player + Cancelar + Enviar -->
+          <div class="audio-paused-bar" id="audio-paused-bar">
+            <audio id="audio-paused-player" controls style="flex:1;height:32px;min-width:0;"></audio>
+            <button class="btn btn-success btn-sm" onclick="enviarAudioPausado()"><i class="ti ti-send"></i> Enviar</button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelarAudio()"><i class="ti ti-trash"></i> Cancelar</button>
           </div>
-        </div>
 
-        <div class="chat-input-area" style="position:relative;">
-          <button class="chat-input-btn" title="Adjuntar archivo" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i></button>
-          <button class="chat-input-btn" title="Emoticones" id="btn-emoji" onclick="toggleEmojiPanel()"><i class="ti ti-mood-smile"></i></button>
-          <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="iniciarAudio()"><i class="ti ti-microphone"></i></button>
-          <button class="chat-input-btn" title="Enviar carrusel" onclick="abrirCarrusel()"><i class="ti ti-layout-grid"></i></button>
-          <textarea class="chat-input" id="msg-input" placeholder="Escribí un mensaje..." rows="1" onkeydown="handleMsgKeydown(event)" oninput="autoResizeInput(this)"></textarea>
-          <button class="send-btn" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>
-        </div>
+          <!-- Panel emoticones -->
+          <div class="emoji-panel" id="emoji-panel">
+            <input class="emoji-search" id="emoji-search" type="text" placeholder="Buscar emoji..." oninput="filtrarEmojis(this.value)">
+            <div class="emoji-grid" id="emoji-grid"></div>
+          </div>
+
+          <!-- Input bar principal -->
+          <div class="chat-input-area" id="chat-input-area">
+            <button class="chat-input-btn" title="Adjuntar archivo" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i></button>
+            <button class="chat-input-btn" title="Emoticones" id="btn-emoji" onclick="toggleEmojiPanel()"><i class="ti ti-mood-smile"></i></button>
+            <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="iniciarAudio()"><i class="ti ti-microphone"></i></button>
+            <button class="chat-input-btn" title="Enviar carrusel" onclick="abrirCarrusel()"><i class="ti ti-layout-grid"></i></button>
+            <textarea class="chat-input" id="msg-input" placeholder="Escribí un mensaje..." rows="1" onkeydown="handleMsgKeydown(event)" oninput="autoResizeInput(this)"></textarea>
+            <button class="send-btn" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>
+          </div>
+
+        </div><!-- /chat-input-wrapper -->
       </div>
-    </div>
 
     <!-- Panel derecho: Info del Contacto -->
     <div class="right-info" id="right-info">
@@ -182,9 +183,12 @@
           </div>
 
           <!-- 3 botones -->
-          <div class="contact-actions">
+          <div class="contact-actions" style="grid-template-columns:1fr 1fr 1fr 1fr;">
             <button class="contact-action" onclick="agendarContacto()">
               <i class="ti ti-address-book"></i>Agendar
+            </button>
+            <button class="contact-action" onclick="editarContactoGoogle()">
+              <i class="ti ti-pencil"></i>Editar
             </button>
             <button class="contact-action" onclick="buscarEnChat()">
               <i class="ti ti-search"></i>Buscar
@@ -248,11 +252,11 @@
                   </div>
                 </div>
               </div>
-              <div class="busqueda-actions" style="margin-top:8px;">
-                <button class="mini-btn primary" onclick="guardarNuevaBusqueda()">Guardar Nueva</button>
-                <button class="mini-btn" onclick="actualizarBusqueda()">Actualizar</button>
-                <button class="mini-btn" onclick="abrirHistorialBusqueda()">Ver Historial</button>
-                <button class="mini-btn success" onclick="finalizarBusqueda()">Finalizar</button>
+              <div class="busqueda-actions" style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                <button class="mini-btn primary" style="width:100%;justify-content:center;" onclick="guardarNuevaBusqueda()">Guardar Nueva</button>
+                <button class="mini-btn" style="width:100%;justify-content:center;" onclick="actualizarBusqueda()">Actualizar</button>
+                <button class="mini-btn" style="width:100%;justify-content:center;" onclick="abrirHistorialBusqueda()">Ver Historial</button>
+                <button class="mini-btn success" style="width:100%;justify-content:center;" onclick="finalizarBusqueda()">Finalizar</button>
               </div>
             </div>
           </div>
@@ -315,11 +319,11 @@
                   </select>
                 </div>
               </div>
-              <div class="cliente-actions">
-                <button class="mini-btn primary" onclick="guardarNuevoCliente()">Guardar Nuevo</button>
-                <button class="mini-btn" onclick="actualizarCliente()">Actualizar</button>
-                <button class="mini-btn" onclick="abrirNuevoServicio()"><i class="ti ti-tool" style="font-size:11px"></i> Servicio</button>
-                <button class="mini-btn" onclick="abrirNuevaCompra()"><i class="ti ti-shopping-cart" style="font-size:11px"></i> Compra</button>
+              <div class="cliente-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                <button class="mini-btn primary" style="width:100%;justify-content:center;" onclick="guardarNuevoCliente()">Guardar Nuevo</button>
+                <button class="mini-btn" style="width:100%;justify-content:center;" onclick="actualizarCliente()">Actualizar</button>
+                <button class="mini-btn" style="width:100%;justify-content:center;" onclick="abrirNuevoServicio()"><i class="ti ti-tool" style="font-size:11px"></i> Servicio</button>
+                <button class="mini-btn" style="width:100%;justify-content:center;" onclick="abrirNuevaCompra()"><i class="ti ti-shopping-cart" style="font-size:11px"></i> Compra</button>
               </div>
             </div>
           </div>
@@ -631,6 +635,66 @@
         </div>
       </div>
 
+      <!-- Google Contacts -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('google')">
+          <span class="admin-card-title"><i class="ti ti-address-book" style="color:var(--green)"></i> Google Contacts — Agenda automática</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-google"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-google">
+          <div class="notice">
+            Configurá una vez y todos los contactos nuevos se agendarán automáticamente con el formato <strong>Nombre ddmmaaNN</strong>.
+            Necesitás crear credenciales OAuth2 en <a href="https://console.cloud.google.com" target="_blank" style="color:var(--blue);">Google Cloud Console</a>.
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2);padding:14px;margin:12px 0;">
+            <div style="font-family:var(--font-cond);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px;">Pasos para configurar:</div>
+            <ol style="font-size:12px;color:var(--text2);line-height:2;padding-left:18px;">
+              <li>Entrá a <strong>console.cloud.google.com</strong> → Nuevo proyecto</li>
+              <li>Habilitá la <strong>People API</strong></li>
+              <li>Credenciales → OAuth 2.0 → Aplicación web</li>
+              <li>URI de redirección autorizado: <code style="background:var(--bg4);padding:1px 5px;border-radius:3px;">https://developers.google.com/oauthplayground</code></li>
+              <li>En <strong>OAuth Playground</strong> → seleccioná <em>Google People API v1</em> → scope <code>contacts</code></li>
+              <li>Pegá Client ID y Secret → obtené el Refresh Token</li>
+            </ol>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Client ID</label>
+              <input class="form-input" id="google-client-id" type="text" placeholder="XXXXXXXXXX.apps.googleusercontent.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Client Secret</label>
+              <div class="pass-wrap">
+                <input class="form-input" id="google-client-secret" type="password" placeholder="GOCSPX-...">
+                <button class="eye-btn" onclick="toggleEye('google-client-secret',this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group full">
+              <label class="form-label">Refresh Token</label>
+              <div class="pass-wrap">
+                <input class="form-input" id="google-refresh-token" type="password" placeholder="1//04...">
+                <button class="eye-btn" onclick="toggleEye('google-refresh-token',this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Auto-agendar consultas nuevas</label>
+              <select class="form-select" id="google-auto-agendar">
+                <option value="1">Sí, automáticamente</option>
+                <option value="0">No, solo manual</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Estado de conexión</label>
+              <div id="google-status" style="font-size:13px;padding:8px 0;color:var(--text3);">Sin configurar</div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarConfigGoogle()"><i class="ti ti-device-floppy"></i> Guardar</button>
+            <button class="btn btn-secondary btn-sm" onclick="testGoogleContacts()"><i class="ti ti-plug"></i> Probar conexión</button>
+          </div>
+        </div>
+      </div>
+
       <!-- JSONBin -->
       <div class="admin-card">
         <div class="admin-card-hdr" onclick="toggleAdminCard('jsonbin')">
@@ -693,24 +757,119 @@
       <!-- Modo edición -->
       <div class="admin-card">
         <div class="admin-card-hdr" onclick="toggleAdminCard('edicion')">
-          <span class="admin-card-title"><i class="ti ti-palette" style="color:var(--amber)"></i> Apariencia — Modo edición</span>
+          <span class="admin-card-title"><i class="ti ti-palette" style="color:var(--amber)"></i> Apariencia</span>
           <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-edicion"></i>
         </div>
         <div class="admin-card-body" id="body-admin-edicion">
-          <p style="font-size:12px;color:var(--text2);margin-bottom:14px;">Activá el modo edición para cambiar textos y colores de botones directamente en la interfaz.</p>
-          <div class="form-grid">
+
+          <!-- Colores -->
+          <div class="admin-section-title">Colores</div>
+          <div class="form-grid c3" style="margin-bottom:14px;">
             <div class="form-group">
-              <label class="form-label">Color acento</label>
+              <label class="form-label">Acento (rojo)</label>
               <input type="color" value="#e83a2f" id="color-accent" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;" onchange="actualizarColor('accent',this.value)">
             </div>
             <div class="form-group">
-              <label class="form-label">Color verde</label>
+              <label class="form-label">Verde</label>
               <input type="color" value="#1d9e75" id="color-green" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;" onchange="actualizarColor('green',this.value)">
             </div>
+            <div class="form-group">
+              <label class="form-label">Azul</label>
+              <input type="color" value="#2d7dd2" id="color-blue" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;" onchange="actualizarColor('blue',this.value)">
+            </div>
           </div>
+
+          <!-- Fuentes -->
+          <div class="admin-section-title">Fuentes</div>
+          <div class="form-grid" style="margin-bottom:14px;">
+            <div class="form-group">
+              <label class="form-label">Fuente general (interfaz)</label>
+              <select class="form-select" id="font-general" onchange="aplicarFuente('general',this.value)">
+                <option value="Barlow">Barlow (actual)</option>
+                <option value="Inter">Inter</option>
+                <option value="Roboto">Roboto</option>
+                <option value="Open Sans">Open Sans</option>
+                <option value="Nunito">Nunito</option>
+                <option value="Poppins">Poppins</option>
+                <option value="DM Sans">DM Sans</option>
+                <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fuente mensajes (chat)</label>
+              <select class="form-select" id="font-mensajes" onchange="aplicarFuente('mensajes',this.value)">
+                <option value="Barlow">Barlow (actual)</option>
+                <option value="Inter">Inter</option>
+                <option value="Roboto">Roboto</option>
+                <option value="Open Sans">Open Sans</option>
+                <option value="Nunito">Nunito</option>
+                <option value="Lato">Lato</option>
+                <option value="Source Sans 3">Source Sans 3</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fuente botones</label>
+              <select class="form-select" id="font-botones" onchange="aplicarFuente('botones',this.value)">
+                <option value="Barlow Condensed">Barlow Condensed (actual)</option>
+                <option value="Barlow">Barlow</option>
+                <option value="Inter">Inter</option>
+                <option value="Roboto Condensed">Roboto Condensed</option>
+                <option value="Oswald">Oswald</option>
+                <option value="Exo 2">Exo 2</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fuente nodales (pendientes)</label>
+              <select class="form-select" id="font-nodales" onchange="aplicarFuente('nodales',this.value)">
+                <option value="Barlow Condensed">Barlow Condensed (actual)</option>
+                <option value="Barlow">Barlow</option>
+                <option value="Inter">Inter</option>
+                <option value="Nunito">Nunito</option>
+                <option value="Exo 2">Exo 2</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Tamaños -->
+          <div class="admin-section-title">Tamaños de fuente</div>
+          <div class="form-grid c3" style="margin-bottom:14px;">
+            <div class="form-group">
+              <label class="form-label">Interfaz general</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="range" id="size-general" min="11" max="16" value="13" step="1"
+                  oninput="aplicarTamanio('general',this.value)" style="flex:1;">
+                <span id="size-general-val" style="font-size:11px;font-family:var(--font-mono);min-width:28px;">13px</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Mensajes</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="range" id="size-mensajes" min="11" max="18" value="13" step="1"
+                  oninput="aplicarTamanio('mensajes',this.value)" style="flex:1;">
+                <span id="size-mensajes-val" style="font-size:11px;font-family:var(--font-mono);min-width:28px;">13px</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Botones</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="range" id="size-botones" min="10" max="16" value="13" step="1"
+                  oninput="aplicarTamanio('botones',this.value)" style="flex:1;">
+                <span id="size-botones-val" style="font-size:11px;font-family:var(--font-mono);min-width:28px;">13px</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nodales</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="range" id="size-nodales" min="10" max="18" value="15" step="1"
+                  oninput="aplicarTamanio('nodales',this.value)" style="flex:1;">
+                <span id="size-nodales-val" style="font-size:11px;font-family:var(--font-mono);min-width:28px;">15px</span>
+              </div>
+            </div>
+          </div>
+
           <div class="btn-row">
-            <button class="btn btn-amber btn-sm" onclick="activarModoEdicion()"><i class="ti ti-pencil"></i> Activar modo edición</button>
-            <button class="btn btn-secondary btn-sm" onclick="resetearColores()"><i class="ti ti-refresh"></i> Resetear colores</button>
+            <button class="btn btn-amber btn-sm" onclick="activarModoEdicion()"><i class="ti ti-pencil"></i> Modo edición de textos</button>
+            <button class="btn btn-secondary btn-sm" onclick="resetearApariencia()"><i class="ti ti-refresh"></i> Resetear todo</button>
           </div>
         </div>
       </div>
@@ -719,6 +878,41 @@
   </div><!-- /page-admin -->
 
 </div><!-- /app -->
+
+<!-- ══ MODAL EDITOR FILTRO ══ -->
+<div class="modal-overlay" id="modal-editor-filtro">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-title">
+      Editar filtro
+      <button class="modal-close" onclick="cerrarModal('modal-editor-filtro')">✕</button>
+    </div>
+    <input type="hidden" id="ef-idx">
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-group">
+        <label class="form-label">Nombre del filtro</label>
+        <input class="form-input" id="ef-nombre" type="text">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Palabras clave (coma separadas)</label>
+        <input class="form-input" id="ef-palabras" type="text" placeholder="hola, precio, pc, consulta...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">IDs de campañas Meta (coma separados)</label>
+        <input class="form-input" id="ef-campanas" type="text" placeholder="123456789, 987654321...">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px;">
+        <input type="checkbox" id="ef-bloquear" checked>
+        <label class="form-label" style="margin:0;">Bloquear cliente hasta completar</label>
+      </div>
+    </div>
+    <div class="admin-section-title" style="margin-bottom:10px;">Pasos del flujo</div>
+    <div id="ef-pasos-list" style="max-height:400px;overflow-y:auto;"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="guardarEditorFiltro()"><i class="ti ti-device-floppy"></i> Guardar cambios</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-editor-filtro')">Cancelar</button>
+    </div>
+  </div>
+</div>
 
 <!-- ══ MODALES ══ -->
 
@@ -873,6 +1067,68 @@
   </div>
 </div>
 
+<!-- Modal Editar Contacto -->
+<div class="modal-overlay" id="modal-editar-contacto">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-title">
+      Editar contacto
+      <button class="modal-close" onclick="cerrarModal('modal-editar-contacto')">✕</button>
+    </div>
+    <div class="notice" id="edit-contacto-id-display" style="margin-bottom:12px;font-family:var(--font-mono);font-size:13px;"></div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Nombre</label>
+        <input class="form-input" id="edit-c-nombre" type="text" placeholder="Nombre">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Apellido</label>
+        <input class="form-input" id="edit-c-apellido" type="text" placeholder="Apellido">
+      </div>
+      <div class="form-group">
+        <label class="form-label">DNI / CUIT</label>
+        <input class="form-input" id="edit-c-dni" type="text" placeholder="XX.XXX.XXX">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="edit-c-email" type="email" placeholder="email@ejemplo.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Domicilio</label>
+        <input class="form-input" id="edit-c-domicilio" type="text" placeholder="Av. Colón 123">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Localidad</label>
+        <input class="form-input" id="edit-c-localidad" type="text" value="Córdoba">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Provincia</label>
+        <input class="form-input" id="edit-c-provincia" type="text" value="Córdoba">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Código Postal</label>
+        <input class="form-input" id="edit-c-cp" type="text" value="5000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">IVA</label>
+        <select class="form-select" id="edit-c-iva">
+          <option value="CF" selected>Consumidor Final</option>
+          <option value="RI">Responsable Inscripto</option>
+          <option value="MO">Monotributista</option>
+          <option value="EX">Exento</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px;">
+        <input type="checkbox" id="edit-sync-google" checked>
+        <label class="form-label" style="margin:0;">Sincronizar con Google Contacts</label>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="guardarEdicionContacto()"><i class="ti ti-device-floppy"></i> Guardar cambios</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-editar-contacto')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Crear Lead -->
 <div class="modal-overlay" id="modal-crear-lead">
   <div class="modal" style="max-width:460px;">
@@ -898,7 +1154,37 @@
   </div>
 </div>
 
+<!-- Modal Selector Reenvío -->
+<div class="modal-overlay" id="modal-selector-reenvio">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-title">
+      Reenviar mensajes
+      <button class="modal-close" onclick="cerrarModal('modal-selector-reenvio')">✕</button>
+    </div>
+    <div style="margin-bottom:10px;">
+      <input class="form-input" id="reenvio-buscar" type="text" placeholder="Buscar contacto..."
+        oninput="renderListaContactosReenvio(this.value)" style="font-size:13px;">
+    </div>
+    <div id="reenvio-contactos-lista" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius2);"></div>
+    <div class="btn-row" style="margin-top:12px;">
+      <span id="reenvio-dest-count" style="font-size:12px;color:var(--text2);align-self:center;">0 destinatario(s)</span>
+      <button class="btn btn-primary" onclick="confirmarReenvio()"><i class="ti ti-send"></i> Reenviar</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-selector-reenvio')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
+<style>
+/* Estilos extra para reenvío y mensajes seleccionados */
+.msg-selected .bubble { outline: 2px solid var(--accent); }
+.reenvio-contacto {
+  display:flex;align-items:center;gap:10px;padding:9px 12px;
+  cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s;
+}
+.reenvio-contacto:hover { background:var(--bg3); }
+.reenvio-contacto.sel { background:var(--blue-dim); }
+</style>
 <div class="toast" id="toast"></div>
 
 <!-- Scripts -->
