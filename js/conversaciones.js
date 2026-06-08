@@ -982,12 +982,23 @@ function renderProgListPanel(phone) {
 }
 
 function abrirNuevoMsgProgramado() {
-  if (!S.convActiva) return;
+  if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
   document.getElementById('modal-prog-title').textContent = 'Programar nuevo mensaje';
   document.getElementById('prog-titulo').value = '';
   document.getElementById('prog-desc').value = '';
-  document.getElementById('prog-datetime').value = '';
+  document.getElementById('prog-date').value = '';
+  document.getElementById('prog-time').value = '';
   document.getElementById('prog-msg-1').value = '';
+  // Limpiar mensajes extra
+  const container = document.getElementById('prog-mensajes-container');
+  container.innerHTML = `<div class="form-group" style="margin-top:10px;">
+    <label class="form-label">Mensaje 1</label>
+    <textarea class="form-input" id="prog-msg-1" rows="3" placeholder="Texto del mensaje..."></textarea>
+    <div style="display:flex;gap:6px;margin-top:6px;">
+      <button class="btn btn-secondary btn-xs" onclick="usarTemplate(1)"><i class="ti ti-layout-grid"></i> Template</button>
+      <button class="btn btn-secondary btn-xs" onclick="grabarAudio(1)"><i class="ti ti-microphone"></i> Audio</button>
+    </div>
+  </div>`;
   itemsCount = 1;
   abrirModal('modal-programado');
 }
@@ -1010,11 +1021,13 @@ function agregarMensajeProg() {
 
 function agendarMensaje() {
   if (!S.convActiva) return;
-  const dt     = document.getElementById('prog-datetime').value;
+  const date   = document.getElementById('prog-date').value;
+  const time   = document.getElementById('prog-time').value;
   const titulo = document.getElementById('prog-titulo').value;
   const desc   = document.getElementById('prog-desc').value;
-  if (!dt || !titulo) { showToast('Completá fecha y título', 'error'); return; }
+  if (!date || !time || !titulo) { showToast('Completá fecha, hora y título', 'error'); return; }
 
+  const dt = `${date}T${time}`;
   const msgs = [];
   for (let i = 1; i <= itemsCount; i++) {
     const el = document.getElementById(`prog-msg-${i}`);
@@ -1039,7 +1052,7 @@ function agendarMensaje() {
   saveToFirebase('crmw_programados', S.programados);
   renderProgListPanel(S.convActiva.phone);
   cerrarModal('modal-programado');
-  showToast('Mensaje programado');
+  showToast('Mensaje programado para ' + prog.fecha + ' ' + prog.hora);
 }
 
 function actualizarMensajeProg() {
@@ -1068,8 +1081,9 @@ function renderRecordatoriosPanel(phone) {
 }
 
 function abrirNuevoRecordatorio() {
-  if (!S.convActiva) return;
-  document.getElementById('rec-datetime').value = '';
+  if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
+  document.getElementById('rec-date').value = '';
+  document.getElementById('rec-time').value = '';
   document.getElementById('rec-titulo').value = '';
   document.getElementById('rec-desc').value = '';
   abrirModal('modal-recordatorio');
@@ -1077,11 +1091,13 @@ function abrirNuevoRecordatorio() {
 
 function guardarRecordatorio() {
   if (!S.convActiva) return;
-  const dt     = document.getElementById('rec-datetime').value;
+  const date   = document.getElementById('rec-date').value;
+  const time   = document.getElementById('rec-time').value;
   const titulo = document.getElementById('rec-titulo').value;
   const desc   = document.getElementById('rec-desc').value;
-  if (!dt || !titulo) { showToast('Completá fecha y título', 'error'); return; }
+  if (!date || !time || !titulo) { showToast('Completá fecha, hora y título', 'error'); return; }
 
+  const dt = `${date}T${time}`;
   const rec = {
     id:       generarId('REC'),
     phone:    S.convActiva.phone,
@@ -1090,6 +1106,7 @@ function guardarRecordatorio() {
     desc,
     datetime: dt,
     fecha:    new Date(dt).toLocaleDateString('es-AR'),
+    hora:     time,
     mostrado: false,
     createdAt: Date.now()
   };
@@ -1097,7 +1114,7 @@ function guardarRecordatorio() {
   saveToFirebase('crmw_recordatorios', S.recordatorios);
   renderRecordatoriosPanel(S.convActiva.phone);
   cerrarModal('modal-recordatorio');
-  showToast('Recordatorio agendado');
+  showToast('Recordatorio agendado para ' + rec.fecha + ' ' + rec.hora);
 }
 
 // ── ARCHIVOS PANEL ──
@@ -1131,33 +1148,79 @@ function renderPendientes() {
   const misBusquedas = S.busquedas.filter(b => b.operador === misEmail && !b.terminada);
   const misTareas    = S.tareas.filter(t => t.operador === misEmail && !t.realizada);
 
-  let html = '';
-  misBusquedas.forEach(b => {
-    const conv = S.conversaciones.find(c => c.phone === b.phone);
-    html += `<div class="nodal busqueda" onclick="abrirDesdeNodal('${b.phone}')" oncontextmenu="event.preventDefault();finalizarDesdeNodal('busqueda','${b.id}')">
-      <div class="nodal-type">Búsqueda</div>
-      <div class="nodal-name">${escHtml(conv?.nombre || b.phone)}</div>
-      <div class="nodal-sub">${escHtml(b.prop1||b.palabras||'')}</div>
-      <div class="nodal-tags">
-        ${b.tipo ? `<span class="nodal-tag gamer">${escHtml(b.tipo)}</span>` : ''}
-        ${b.rango ? `<span class="nodal-tag price">${escHtml(b.rango.slice(0,12))}</span>` : ''}
-      </div>
-    </div>`;
-  });
+  // Obtener orden guardado o usar default
+  if (!S.pendOrden) S.pendOrden = [];
 
-  misTareas.forEach(t => {
-    html += `<div class="nodal tarea" ondblclick="abrirDetalleTarea('${t.id}')" oncontextmenu="event.preventDefault();finalizarTareaDesdeNodal('${t.id}')">
-      <div class="nodal-type">Tarea</div>
-      <div class="nodal-name">${escHtml(t.titulo)}</div>
-      <div class="nodal-sub">${escHtml((t.detalles||'').slice(0,40))}</div>
-      <div class="nodal-tags">
-        <span class="nodal-tag date">${t.fecha||''}</span>
-      </div>
-    </div>`;
+  let items = [
+    ...misBusquedas.map(b => ({ ...b, _tipo: 'busqueda' })),
+    ...misTareas.map(t => ({ ...t, _tipo: 'tarea' }))
+  ];
+
+  let html = '';
+  items.forEach(item => {
+    if (item._tipo === 'busqueda') {
+      const conv = S.conversaciones.find(c => c.phone === item.phone);
+      html += `<div class="nodal busqueda" draggable="true"
+        data-id="${item.id}" data-tipo="busqueda"
+        onclick="abrirDesdeNodal('${item.phone}')"
+        oncontextmenu="event.preventDefault();finalizarDesdeNodal('busqueda','${item.id}')"
+        ondragstart="dragNodal(event,this)"
+        ondragover="event.preventDefault()"
+        ondrop="dropNodal(event,this)">
+        <div class="nodal-type">Búsqueda</div>
+        <div class="nodal-name">${escHtml(conv?.nombre || item.phone)}</div>
+        <div class="nodal-sub">${escHtml(item.prop1||item.palabras||'')}</div>
+        <div class="nodal-tags">
+          ${item.tipo ? `<span class="nodal-tag gamer">${escHtml(item.tipo)}</span>` : ''}
+          ${item.rango ? `<span class="nodal-tag price">${escHtml(item.rango.slice(0,12))}</span>` : ''}
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="nodal tarea" draggable="true"
+        data-id="${item.id}" data-tipo="tarea"
+        ondblclick="abrirDetalleTarea('${item.id}')"
+        oncontextmenu="event.preventDefault();finalizarTareaDesdeNodal('${item.id}')"
+        ondragstart="dragNodal(event,this)"
+        ondragover="event.preventDefault()"
+        ondrop="dropNodal(event,this)">
+        <div class="nodal-type">Tarea</div>
+        <div class="nodal-name">${escHtml(item.titulo)}</div>
+        <div class="nodal-sub">${escHtml((item.detalles||'').slice(0,40))}</div>
+        <div class="nodal-tags">
+          <span class="nodal-tag date">${item.fecha||''}</span>
+        </div>
+      </div>`;
+    }
   });
 
   container.innerHTML = html ||
     `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Sin pendientes</div>`;
+}
+
+let dragSrcNodal = null;
+
+function dragNodal(e, el) {
+  dragSrcNodal = el;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', el.dataset.id);
+  setTimeout(() => el.style.opacity = '0.4', 0);
+}
+
+function dropNodal(e, el) {
+  e.stopPropagation();
+  if (dragSrcNodal && dragSrcNodal !== el) {
+    const container = document.getElementById('pend-inner');
+    const nodes = [...container.querySelectorAll('.nodal')];
+    const srcIdx = nodes.indexOf(dragSrcNodal);
+    const dstIdx = nodes.indexOf(el);
+    if (srcIdx < dstIdx) {
+      el.after(dragSrcNodal);
+    } else {
+      el.before(dragSrcNodal);
+    }
+  }
+  dragSrcNodal.style.opacity = '1';
+  dragSrcNodal = null;
 }
 
 function abrirDesdeNodal(phone) {

@@ -288,12 +288,42 @@ function resetearColores() {
 function activarModoEdicion() {
   S.modoEdicion = true;
   document.getElementById('edit-mode-bar').classList.add('active');
-  showToast('Modo edición activo — hacé click en textos para editarlos');
+
+  document.querySelectorAll('.btn, .mini-btn, .bar-btn, .nav-tab, .contact-action').forEach(el => {
+    if (el.dataset.editBound) return;
+    el.dataset.editBound = '1';
+    el.addEventListener('click', handleEditClick, true);
+  });
+
+  showToast('Modo edición — hacé click en cualquier botón para renombrarlo');
+}
+
+function handleEditClick(e) {
+  if (!S.modoEdicion) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const el = e.currentTarget;
+  const textoActual = el.textContent.trim();
+  const nuevoTexto = prompt('Nuevo texto para este botón:', textoActual);
+  if (nuevoTexto === null) return;
+  const icono = el.querySelector('i');
+  if (icono) {
+    el.innerHTML = icono.outerHTML + ' ' + nuevoTexto;
+  } else {
+    el.textContent = nuevoTexto;
+  }
+  if (!S.config.textos) S.config.textos = {};
+  S.config.textos[textoActual] = nuevoTexto;
+  saveLocal();
 }
 
 function terminarEdicion() {
   S.modoEdicion = false;
   document.getElementById('edit-mode-bar').classList.remove('active');
+  document.querySelectorAll('[data-edit-bound]').forEach(el => {
+    el.removeEventListener('click', handleEditClick, true);
+    delete el.dataset.editBound;
+  });
   saveLocal();
   showToast('Cambios guardados');
 }
@@ -520,6 +550,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Si hay sesión guardada, montar directamente
   if (S.usuario) mountApp();
+
+  // Datos de prueba si no hay conversaciones
+  if (!S.conversaciones.length) {
+    S.conversaciones = [
+      {
+        phone: '+5493516842001',
+        nombre: 'Matías Romero',
+        lastMsg: 'Hola, quería consultar por una PC gamer',
+        lastTs: Date.now() - 1000 * 60 * 5,
+        unread: 2,
+        operador: 'Diego G.'
+      },
+      {
+        phone: '+5493516842002',
+        nombre: 'Juan García',
+        lastMsg: 'Perfecto, ya transfiero el 50%',
+        lastTs: Date.now() - 1000 * 60 * 40,
+        unread: 0,
+        operador: 'Diego G.'
+      },
+      {
+        phone: '+5493516842003',
+        nombre: 'Carla López',
+        lastMsg: '¿El Ryzen 7 tiene garantía oficial?',
+        lastTs: Date.now() - 1000 * 60 * 120,
+        unread: 1,
+        operador: 'Diego G.'
+      }
+    ];
+    S.mensajesCache['+5493516842001'] = [
+      { id:'m1', tipo:'texto', texto:'Hola! Quería consultar por una PC gamer, presupuesto hasta $1.500.000', dir:'in', ts: Date.now() - 1000*60*8 },
+      { id:'m2', tipo:'texto', texto:'¡Hola Matías! Buenas tardes, soy Diego de Casa Tecno. Con ese presupuesto tenemos excelentes opciones 🎮', dir:'out', ts: Date.now() - 1000*60*7 },
+      { id:'m3', tipo:'texto', texto:'¿Qué opciones me recomendás? ¿Ryzen o Intel?', dir:'in', ts: Date.now() - 1000*60*6 },
+      { id:'m4', tipo:'texto', texto:'Para tu presupuesto el Ryzen 7 con RTX 4060 es la mejor relación precio/rendimiento. ¿Qué juegos jugás principalmente?', dir:'out', ts: Date.now() - 1000*60*5 },
+      { id:'m5', tipo:'texto', texto:'FPS principalmente, Valorant y CS2. También algo de edición de video', dir:'in', ts: Date.now() - 1000*60*4 }
+    ];
+    S.mensajesCache['+5493516842002'] = [
+      { id:'m6', tipo:'texto', texto:'Buenas! Me interesa la RTX 4070 que vi en Instagram', dir:'in', ts: Date.now() - 1000*60*90 },
+      { id:'m7', tipo:'texto', texto:'Hola Juan! Sí, la tenemos disponible. ¿Querés que te arme un presupuesto completo?', dir:'out', ts: Date.now() - 1000*60*85 },
+      { id:'m8', tipo:'texto', texto:'Sí perfecto, con R7 7700X y 32GB RAM', dir:'in', ts: Date.now() - 1000*60*80 },
+      { id:'m9', tipo:'texto', texto:'Perfecto, ya transfiero el 50%', dir:'in', ts: Date.now() - 1000*60*40 }
+    ];
+    S.mensajesCache['+5493516842003'] = [
+      { id:'m10', tipo:'texto', texto:'Hola buenas tardes! Estoy buscando una PC para arquitectura y diseño 3D', dir:'in', ts: Date.now() - 1000*60*130 },
+      { id:'m11', tipo:'texto', texto:'Hola Carla! Para arquitectura y 3D te recomiendo algo con Ryzen 9 o i9 con mucha RAM. ¿Cuál es tu presupuesto?', dir:'out', ts: Date.now() - 1000*60*125 },
+      { id:'m12', tipo:'texto', texto:'¿El Ryzen 7 tiene garantía oficial?', dir:'in', ts: Date.now() - 1000*60*120 }
+    ];
+  }
 
   applyTheme();
 });

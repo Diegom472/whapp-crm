@@ -517,6 +517,7 @@ function eliminarUsuario(idx) {
 // ════════════════════════════════
 
 function renderPredefinidos() {
+  inicializarFiltroDefault();
   switchPred('filtros', document.querySelector('[data-pred="filtros"]'));
 }
 
@@ -589,6 +590,27 @@ function crearNuevoFiltro() {
   saveLocal();
   renderPredefinidos();
   showToast('Filtro creado. Editalo para personalizar los pasos.');
+}
+
+function inicializarFiltroDefault() {
+  if (!S.config.filtros) S.config.filtros = [];
+  if (S.config.filtros.find(f => f.id === 'F_CASATECNO_DEFAULT')) return;
+  S.config.filtros.unshift({
+    id: 'F_CASATECNO_DEFAULT',
+    nombre: 'Filtro Casa Tecno — Asesoramiento PC',
+    palabrasClave: ['hola','precio','pc','computadora','presupuesto','gamer','notebook','consulta'],
+    campanas: [],
+    activo: true,
+    bloquearHastaCompletar: true,
+    pasos: [
+      { orden: 1, msj: '¡Hola! 👋 Bienvenido/a a *Casa Tecno*. Para asesorarte mejor necesito hacerte unas preguntas rápidas.\n\n¿Para qué vas a usar la PC principalmente?\n\n1️⃣ Gaming\n2️⃣ Trabajo / Profesional\n3️⃣ Diseño / Arquitectura / Video\n4️⃣ Uso general / Oficina\n5️⃣ Solo estoy viendo precios', esperar: true, tipo: 'opcion' },
+      { orden: 2, msj: '¿Cuál es tu presupuesto aproximado en pesos argentinos?\n\n1️⃣ Hasta $800.000\n2️⃣ $800.000 — $1.200.000\n3️⃣ $1.200.000 — $1.800.000\n4️⃣ $1.800.000 — $2.500.000\n5️⃣ Más de $2.500.000', esperar: true, tipo: 'opcion' },
+      { orden: 3, msj: '¿Tenés alguna preferencia de procesador?\n\n1️⃣ AMD Ryzen (mejor precio/rendimiento)\n2️⃣ Intel Core (compatibilidad garantizada)\n3️⃣ Sin preferencia / Lo que recomienden', esperar: true, tipo: 'opcion' },
+      { orden: 4, msj: '¿Necesitás monitor, teclado o mouse incluidos en el presupuesto?\n\n1️⃣ Solo la PC\n2️⃣ PC + Monitor\n3️⃣ PC + Periféricos completos\n4️⃣ Solo periféricos', esperar: true, tipo: 'opcion' },
+      { orden: 5, msj: '¡Perfecto! 🎯 Ya tengo toda la info que necesito. En breve un asesor de Casa Tecno te va a responder con las mejores opciones para vos. ¡Gracias por tu paciencia! ⚡', esperar: false, tipo: 'cierre' }
+    ]
+  });
+  saveLocal();
 }
 
 function editarFiltro(i) { showToast('Editor de pasos del filtro (próxima versión)', 'warn'); }
