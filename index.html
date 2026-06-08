@@ -128,11 +128,10 @@
 
     <!-- Panel derecho: Info del Contacto -->
     <div class="right-info" id="right-info">
-      <div style="display:flex;height:100%;overflow:hidden;">
-        <div class="panel-collapse-btn">
-          <button class="panel-toggle" id="btn-toggle-info" onclick="togglePanel('info')" title="Colapsar panel"><i class="ti ti-chevron-right"></i></button>
-        </div>
-        <div class="panel-inner" id="panel-info-inner">
+      <div class="panel-toggle-bar">
+        <button class="panel-toggle" id="btn-toggle-info" onclick="togglePanel('info')" title="Colapsar panel"><i class="ti ti-chevron-right"></i></button>
+      </div>
+      <div class="panel-inner" id="panel-info-inner">
 
           <!-- Header contacto -->
           <div class="contact-header">
@@ -342,20 +341,19 @@
           </div>
 
         </div><!-- /panel-info-inner -->
-      </div>
     </div><!-- /right-info -->
 
     <!-- Panel derecho: Pendientes -->
     <div class="pendientes-col" id="pendientes-col">
-      <div class="pend-header">
-        <span class="pend-title">Pendientes</span>
-        <div style="display:flex;gap:5px;align-items:center;">
-          <button class="mini-btn btn-xs" onclick="abrirPendientesAdmin()" title="Ver pendientes de otros operadores" style="padding:3px 7px;"><i class="ti ti-users" style="font-size:12px;"></i></button>
-          <button class="panel-toggle" id="btn-toggle-pend" onclick="togglePanel('pend')" title="Colapsar"><i class="ti ti-chevron-right"></i></button>
-        </div>
+      <div class="pend-toggle-bar">
+        <button class="panel-toggle" id="btn-toggle-pend" onclick="togglePanel('pend')" title="Colapsar"><i class="ti ti-chevron-right"></i></button>
       </div>
-      <div class="pend-inner" id="pend-inner">
-        <!-- Se llena dinámicamente -->
+      <div class="pend-main">
+        <div class="pend-header">
+          <span class="pend-title">Pendientes</span>
+          <button class="mini-btn btn-xs" onclick="abrirPendientesAdmin()" title="Ver pendientes de otros operadores" style="padding:3px 7px;"><i class="ti ti-users" style="font-size:12px;"></i></button>
+        </div>
+        <div class="pend-inner" id="pend-inner"></div>
       </div>
     </div>
 
