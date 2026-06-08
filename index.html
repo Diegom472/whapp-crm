@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Casa Tecno · CRMW</title>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<!-- ══ LOGIN ══ -->
+<div id="login-page">
+  <div class="login-card">
+    <div class="login-logo">CASA<span>TECNO</span> <span style="font-size:18px;color:var(--text2)">CRM<span style="color:var(--accent)">W</span></span></div>
+    <div class="login-sub">WhatsApp CRM — Acceso operadores</div>
+    <div id="login-error" class="login-error">Usuario o contraseña incorrectos</div>
+    <div class="login-field">
+      <label class="login-label">Usuario</label>
+      <input class="login-input" id="login-user" type="text" placeholder="operador@casatecno.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label class="login-label">Contraseña</label>
+      <input class="login-input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="login-btn" onclick="doLogin()">Ingresar</button>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="app" style="display:none;">
+
+  <!-- Edit mode bar -->
+  <div class="edit-mode-bar" id="edit-mode-bar">
+    <span class="edit-mode-text"><i class="ti ti-pencil"></i> Modo edición activo — hacé click en cualquier texto o botón para modificarlo</span>
+    <button class="edit-mode-done" onclick="terminarEdicion()"><i class="ti ti-check"></i> Terminar edición</button>
+  </div>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <div class="logo-mark">CT</div>
+      <div class="logo-text">CASA<span>TECNO</span> CRM<span>W</span></div>
+      <span class="logo-badge">WhatsApp</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="conversaciones" onclick="switchTab('conversaciones')">Conversaciones</button>
+      <button class="nav-tab" data-tab="predefinidos" onclick="switchTab('predefinidos')">Predefinidos</button>
+      <button class="nav-tab" data-tab="embudo" onclick="switchTab('embudo')">Embudo</button>
+      <button class="nav-tab" data-tab="tareas" onclick="switchTab('tareas')">Tareas</button>
+      <button class="nav-tab" data-tab="terminadas" onclick="switchTab('terminadas')">Terminadas</button>
+      <button class="nav-tab" data-tab="admin" onclick="switchTab('admin')">Admin</button>
+    </div>
+    <div class="topbar-right">
+      <button class="theme-btn" onclick="toggleTheme()" title="Cambiar tema"><i class="ti ti-sun" id="theme-icon"></i></button>
+      <div class="user-pill" onclick="showUserMenu()">
+        <div class="user-avatar" id="user-avatar-initials">DG</div>
+        <span id="user-display-name">Diego G.</span>
+        <i class="ti ti-chevron-down" style="font-size:11px;"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CONVERSACIONES ══ -->
+  <div id="page-conversaciones" class="page active">
+
+    <!-- Lista chats -->
+    <div class="conv-list">
+      <div class="conv-list-header">
+        <div class="conv-search-wrap">
+          <i class="ti ti-search"></i>
+          <input class="conv-search" id="conv-search-input" type="text" placeholder="Buscar chat..." oninput="filtrarConversaciones(this.value)">
+        </div>
+      </div>
+      <div class="conv-filters">
+        <button class="conv-filter active" onclick="filtrarPor('todos',this)">Todos</button>
+        <button class="conv-filter" onclick="filtrarPor('noleidos',this)">No leídos</button>
+        <button class="conv-filter" onclick="filtrarPor('favoritos',this)">Favoritos</button>
+        <button class="conv-filter" onclick="filtrarPor('etiquetas',this)">Etiquetas</button>
+      </div>
+      <div class="conv-items" id="conv-items-list">
+        <!-- Se llena dinámicamente desde app.js -->
+      </div>
+    </div>
+
+    <!-- Chat area -->
+    <div class="chat-area" id="chat-area">
+      <!-- Placeholder cuando no hay chat seleccionado -->
+      <div id="chat-placeholder" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text3);">
+        <i class="ti ti-message-2" style="font-size:52px;opacity:0.3;"></i>
+        <div style="font-size:14px;font-weight:500;">Seleccioná una conversación</div>
+        <div style="font-size:12px;">o iniciá una nueva desde la lista</div>
+      </div>
+
+      <!-- Chat activo (se muestra cuando hay conversación seleccionada) -->
+      <div id="chat-active" style="display:none;flex:1;display:flex;flex-direction:column;">
+        <div class="chat-header" id="chat-header">
+          <div class="chat-header-avatar av-blue" id="chat-hdr-avatar">MR</div>
+          <div class="chat-header-info">
+            <div class="chat-header-name" id="chat-hdr-name">Matías Romero</div>
+            <div class="chat-header-sub" id="chat-hdr-sub"><span class="online-dot"></span> En línea</div>
+          </div>
+          <div class="chat-header-tags" id="chat-hdr-tags"></div>
+          <div class="chat-header-actions">
+            <button class="icon-btn" onclick="abrirBuscarEnChat()"><i class="ti ti-search"></i></button>
+            <button class="icon-btn" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i> Adjuntar</button>
+            <button class="icon-btn" id="btn-etiquetar" onclick="abrirEtiquetarModal()"><i class="ti ti-tag"></i> Etiquetar</button>
+            <button class="icon-btn"><i class="ti ti-dots-vertical"></i></button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+          <!-- Mensajes se renderizan dinámicamente -->
+        </div>
+
+        <div class="chat-input-area">
+          <button class="chat-input-btn" title="Adjuntar archivo" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i></button>
+          <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="toggleAudio()"><i class="ti ti-microphone"></i></button>
+          <button class="chat-input-btn" title="Enviar carrusel" onclick="abrirCarrusel()"><i class="ti ti-layout-grid"></i></button>
+          <textarea class="chat-input" id="msg-input" placeholder="Escribí un mensaje..." rows="1" onkeydown="handleMsgKeydown(event)" oninput="autoResizeInput(this)"></textarea>
+          <button class="send-btn" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel derecho: Info del Contacto -->
+    <div class="right-info" id="right-info">
+      <div style="display:flex;height:100%;overflow:hidden;">
+        <div class="panel-collapse-btn">
+          <button class="panel-toggle" id="btn-toggle-info" onclick="togglePanel('info')" title="Colapsar panel"><i class="ti ti-chevron-right"></i></button>
+        </div>
+        <div class="panel-inner" id="panel-info-inner">
+
+          <!-- Header contacto -->
+          <div class="contact-header">
+            <div class="contact-avatar-lg av-blue" id="panel-avatar">MR</div>
+            <div class="contact-name-lg" id="panel-nombre">Matías Romero</div>
+            <div class="contact-phone" id="panel-telefono">+54 9 3518 05-0130</div>
+            <div class="contact-tags-row" id="panel-tags"></div>
+          </div>
+
+          <!-- 3 botones -->
+          <div class="contact-actions">
+            <button class="contact-action" onclick="agendarContacto()">
+              <i class="ti ti-address-book"></i>Agendar
+            </button>
+            <button class="contact-action" onclick="buscarEnChat()">
+              <i class="ti ti-search"></i>Buscar
+            </button>
+            <button class="contact-action lead" onclick="crearLead()">
+              <i class="ti ti-bolt"></i>Lead
+            </button>
+          </div>
+
+          <!-- ── BÚSQUEDA ACTUAL ── -->
+          <div class="collapse-section">
+            <div class="collapse-hdr" onclick="toggleCollapse('busqueda')">
+              <div class="collapse-hdr-title">
+                <i class="ti ti-search"></i> Búsqueda actual
+                <span class="draft-badge" id="busqueda-draft-badge">BORRADOR</span>
+              </div>
+              <div class="collapse-hdr-right">
+                <i class="ti ti-chevron-down collapse-arrow open" id="arrow-busqueda"></i>
+              </div>
+            </div>
+            <div class="collapse-body open" id="body-busqueda">
+              <div class="busqueda-panel">
+                <!-- Fila 1: Palabras Clave (izq) | Tipo PC (der) -->
+                <div class="busqueda-row">
+                  <div class="field-group">
+                    <label class="field-label">Palabras Clave</label>
+                    <input class="field-input" id="b-palabras" type="text" placeholder="Escribir..." oninput="autosaveBusqueda()">
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">GAMER / Prof / Otros</label>
+                    <select class="field-select" id="b-tipo" onchange="autosaveBusqueda()">
+                      <option value="">— Seleccionar —</option>
+                      <option>GAMER ALTA</option>
+                      <option>GAMER MEDIA</option>
+                      <option>GAMER ENTRADA</option>
+                      <option>PROFESIONAL</option>
+                      <option>ARQUITECTURA</option>
+                      <option>EDICIÓN VIDEO</option>
+                      <option>OTROS</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Fila 2: $ Rango -->
+                <div class="busqueda-row full">
+                  <div class="field-group">
+                    <label class="field-label">$ Rango</label>
+                    <input class="field-input" id="b-rango" type="text" placeholder="Ej: $1.000.000 – $1.500.000" oninput="autosaveBusqueda()">
+                  </div>
+                </div>
+                <!-- Fila 3: Propuesta 1 -->
+                <div class="busqueda-row full">
+                  <div class="field-group">
+                    <label class="field-label">Propuesta 1</label>
+                    <input class="field-input" id="b-prop1" type="text" placeholder="Propuesta 1..." oninput="autosaveBusqueda()">
+                  </div>
+                </div>
+                <!-- Fila 4: Propuesta 2 -->
+                <div class="busqueda-row full">
+                  <div class="field-group">
+                    <label class="field-label">Propuesta 2</label>
+                    <input class="field-input" id="b-prop2" type="text" placeholder="Propuesta 2..." oninput="autosaveBusqueda()">
+                  </div>
+                </div>
+                <!-- Fila 5: Propuesta 3 -->
+                <div class="busqueda-row full">
+                  <div class="field-group">
+                    <label class="field-label">Propuesta 3</label>
+                    <input class="field-input" id="b-prop3" type="text" placeholder="Propuesta 3..." oninput="autosaveBusqueda()">
+                  </div>
+                </div>
+              </div>
+              <div class="busqueda-actions">
+                <button class="mini-btn primary" onclick="guardarNuevaBusqueda()">+ Guardar Nueva</button>
+                <button class="mini-btn" onclick="actualizarBusqueda()">Actualizar</button>
+                <button class="mini-btn" onclick="abrirHistorialBusqueda()">Ver Historial</button>
+                <button class="mini-btn success" onclick="finalizarBusqueda()">Finalizar</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── DATOS DEL CLIENTE ── -->
+          <div class="collapse-section">
+            <div class="collapse-hdr" onclick="toggleCollapse('cliente')">
+              <div class="collapse-hdr-title"><i class="ti ti-user"></i> Datos del cliente</div>
+              <i class="ti ti-chevron-down collapse-arrow" id="arrow-cliente"></i>
+            </div>
+            <div class="collapse-body" id="body-cliente">
+              <div class="cliente-panel">
+                <div class="cliente-row">
+                  <div class="field-group">
+                    <label class="field-label">Nombre</label>
+                    <input class="field-input" id="c-nombre" type="text" placeholder="Nombre">
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Apellido</label>
+                    <input class="field-input" id="c-apellido" type="text" placeholder="Apellido">
+                  </div>
+                </div>
+                <div class="cliente-row">
+                  <div class="field-group">
+                    <label class="field-label">DNI / CUIT</label>
+                    <input class="field-input" id="c-dni" type="text" placeholder="XX.XXX.XXX">
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Domicilio Real</label>
+                    <input class="field-input" id="c-domicilio" type="text" placeholder="Av. Colón 123">
+                  </div>
+                </div>
+                <div class="cliente-row">
+                  <div class="field-group">
+                    <label class="field-label">Localidad</label>
+                    <input class="field-input" id="c-localidad" type="text" value="Córdoba">
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Provincia</label>
+                    <input class="field-input" id="c-provincia" type="text" value="Córdoba">
+                  </div>
+                </div>
+                <div class="cliente-row">
+                  <div class="field-group">
+                    <label class="field-label">Código Postal</label>
+                    <input class="field-input" id="c-cp" type="text" value="5000">
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Meta ID (auto)</label>
+                    <div class="auto-field" id="c-metaid">—</div>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label class="field-label">IVA</label>
+                  <select class="field-select" id="c-iva">
+                    <option value="CF" selected>Consumidor Final</option>
+                    <option value="RI">Responsable Inscripto</option>
+                    <option value="MO">Monotributista</option>
+                    <option value="EX">Exento</option>
+                  </select>
+                </div>
+              </div>
+              <div class="cliente-actions">
+                <button class="mini-btn primary" onclick="guardarNuevoCliente()">Guardar Nuevo</button>
+                <button class="mini-btn" onclick="actualizarCliente()">Actualizar</button>
+                <button class="mini-btn" onclick="abrirNuevoServicio()"><i class="ti ti-tool" style="font-size:11px"></i> Servicio</button>
+                <button class="mini-btn" onclick="abrirNuevaCompra()"><i class="ti ti-shopping-cart" style="font-size:11px"></i> Compra</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── COMPRA O SERVICIO ── -->
+          <div class="collapse-section">
+            <div class="collapse-hdr" onclick="toggleCollapse('compras')">
+              <div class="collapse-hdr-title"><i class="ti ti-receipt"></i> Compra o servicio</div>
+              <i class="ti ti-chevron-down collapse-arrow" id="arrow-compras"></i>
+            </div>
+            <div class="collapse-body" id="body-compras">
+              <div class="comp-list" id="comp-list">
+                <div style="text-align:center;padding:14px 0;color:var(--text3);font-size:12px;">Sin comprobantes</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── MENSAJES PROGRAMADOS ── -->
+          <div class="collapse-section">
+            <div class="collapse-hdr" onclick="toggleCollapse('programados')">
+              <div class="collapse-hdr-title"><i class="ti ti-clock"></i> Mensajes programados</div>
+              <i class="ti ti-chevron-down collapse-arrow" id="arrow-programados"></i>
+            </div>
+            <div class="collapse-body" id="body-programados">
+              <div class="prog-list" id="prog-list">
+                <div style="text-align:center;padding:10px 0;color:var(--text3);font-size:12px;">Sin mensajes programados</div>
+              </div>
+              <button class="mini-btn primary" style="margin-top:8px;width:100%;" onclick="abrirNuevoMsgProgramado()">+ Programar mensaje</button>
+            </div>
+          </div>
+
+          <!-- ── RECORDATORIOS ── -->
+          <div class="collapse-section">
+            <div class="collapse-hdr" onclick="toggleCollapse('recordatorios')">
+              <div class="collapse-hdr-title"><i class="ti ti-bell"></i> Recordatorios</div>
+              <i class="ti ti-chevron-down collapse-arrow" id="arrow-recordatorios"></i>
+            </div>
+            <div class="collapse-body" id="body-recordatorios">
+              <div id="recordatorios-list">
+                <div style="text-align:center;padding:10px 0;color:var(--text3);font-size:12px;">Sin recordatorios</div>
+              </div>
+              <button class="mini-btn primary" style="margin-top:8px;width:100%;" onclick="abrirNuevoRecordatorio()">+ Nuevo recordatorio</button>
+            </div>
+          </div>
+
+          <!-- ── ARCHIVOS Y DOCS ── -->
+          <div class="collapse-section">
+            <div class="collapse-hdr" onclick="toggleCollapse('archivos')">
+              <div class="collapse-hdr-title"><i class="ti ti-paperclip"></i> Archivos y documentos</div>
+              <i class="ti ti-chevron-down collapse-arrow" id="arrow-archivos"></i>
+            </div>
+            <div class="collapse-body" id="body-archivos">
+              <div id="archivos-list">
+                <div style="text-align:center;padding:10px 0;color:var(--text3);font-size:12px;">Sin archivos adjuntos</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Barra inferior -->
+          <div class="bottom-bar">
+            <button class="bar-btn compra" onclick="abrirNuevaCompra()"><i class="ti ti-shopping-cart"></i> Nueva compra</button>
+            <button class="bar-btn servicio" onclick="abrirNuevoServicio()"><i class="ti ti-tool"></i> Servicio</button>
+            <button class="bar-btn listo" onclick="marcarPedidoListo()"><i class="ti ti-check"></i> Listo</button>
+          </div>
+
+        </div><!-- /panel-info-inner -->
+      </div>
+    </div><!-- /right-info -->
+
+    <!-- Panel derecho: Pendientes -->
+    <div class="pendientes-col" id="pendientes-col">
+      <div class="pend-header">
+        <span class="pend-title">Pendientes</span>
+        <div style="display:flex;gap:5px;align-items:center;">
+          <button class="mini-btn btn-xs" onclick="abrirPendientesAdmin()" title="Ver pendientes de otros operadores" style="padding:3px 7px;"><i class="ti ti-users" style="font-size:12px;"></i></button>
+          <button class="panel-toggle" id="btn-toggle-pend" onclick="togglePanel('pend')" title="Colapsar"><i class="ti ti-chevron-right"></i></button>
+        </div>
+      </div>
+      <div class="pend-inner" id="pend-inner">
+        <!-- Se llena dinámicamente -->
+      </div>
+    </div>
+
+  </div><!-- /page-conversaciones -->
+
+  <!-- ══ PREDEFINIDOS ══ -->
+  <div id="page-predefinidos" class="page">
+    <div class="pred-layout">
+      <div class="pred-sidebar">
+        <div class="pred-sidebar-title">Predefinidos</div>
+        <div class="pred-menu-item active" data-pred="filtros" onclick="switchPred('filtros',this)">
+          <i class="ti ti-filter"></i> Filtros automáticos
+        </div>
+        <div class="pred-menu-item" data-pred="carruseles" onclick="switchPred('carruseles',this)">
+          <i class="ti ti-layout-grid"></i> Carruseles
+        </div>
+      </div>
+      <div class="pred-content" id="pred-content">
+        <!-- Se llena según selección -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ EMBUDO ══ -->
+  <div id="page-embudo" class="page">
+    <div class="embudo-toolbar">
+      <button class="btn btn-secondary btn-sm" onclick="agregarEtapa()"><i class="ti ti-plus"></i> Agregar etapa</button>
+      <span style="font-size:12px;color:var(--text3);margin-left:8px;">Arrastrá las tarjetas entre columnas</span>
+    </div>
+    <div class="embudo-board" id="embudo-board">
+      <!-- Columnas dinámicas -->
+    </div>
+  </div>
+
+  <!-- ══ TAREAS ══ -->
+  <div id="page-tareas" class="page">
+    <div class="tareas-container">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <h1 style="font-family:var(--font-cond);font-weight:900;font-size:22px;text-transform:uppercase;">Tareas</h1>
+        <button class="btn btn-primary btn-sm" onclick="abrirNuevaTarea()"><i class="ti ti-plus"></i> Nueva tarea</button>
+      </div>
+      <div class="tareas-block">
+        <div class="tareas-block-header">
+          <div class="tareas-block-title">A Realizar</div>
+        </div>
+        <div class="tareas-list" id="tareas-pendientes-list"></div>
+      </div>
+      <div class="tareas-block">
+        <div class="tareas-block-header">
+          <div class="tareas-block-title">Realizadas</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="date" class="form-input" id="tareas-fecha-desde" style="width:140px;font-size:11px;padding:4px 8px;">
+            <span style="font-size:12px;color:var(--text3);">—</span>
+            <input type="date" class="form-input" id="tareas-fecha-hasta" style="width:140px;font-size:11px;padding:4px 8px;">
+            <button class="btn btn-secondary btn-xs" onclick="filtrarTareasRealizadas()">Filtrar</button>
+          </div>
+        </div>
+        <div class="tareas-list" id="tareas-realizadas-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ TERMINADAS ══ -->
+  <div id="page-terminadas" class="page">
+    <div class="term-container">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h1 style="font-family:var(--font-cond);font-weight:900;font-size:22px;text-transform:uppercase;">Terminadas</h1>
+      </div>
+      <div class="term-filters">
+        <select class="form-select" style="width:140px;font-size:12px;padding:5px 9px;" id="term-tipo-filter">
+          <option value="">Todos los tipos</option>
+          <option value="busqueda">Búsquedas</option>
+          <option value="tarea">Tareas</option>
+        </select>
+        <input type="date" class="form-input" id="term-fecha-desde" style="width:140px;font-size:12px;padding:5px 9px;">
+        <span style="font-size:12px;color:var(--text3);">—</span>
+        <input type="date" class="form-input" id="term-fecha-hasta" style="width:140px;font-size:12px;padding:5px 9px;">
+        <button class="btn btn-secondary btn-sm" onclick="filtrarTerminadas()">Filtrar</button>
+      </div>
+      <table class="term-table" id="term-table">
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Nombre / Contacto</th>
+            <th>Detalle</th>
+            <th>Operador</th>
+            <th>Fecha</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="term-tbody">
+          <tr><td colspan="6" style="text-align:center;padding:28px;color:var(--text3);">Sin elementos terminados</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ ADMIN ══ -->
+  <div id="page-admin" class="page">
+    <div class="admin-container">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h1 style="font-family:var(--font-cond);font-weight:900;font-size:22px;text-transform:uppercase;">Administración</h1>
+        <button class="btn btn-secondary btn-sm" onclick="activarModoEdicion()"><i class="ti ti-pencil"></i> Modo edición</button>
+      </div>
+
+      <!-- WhatsApp API -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('wa')">
+          <span class="admin-card-title"><i class="ti ti-brand-whatsapp" style="color:var(--green)"></i> WhatsApp Cloud API</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-wa"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-wa">
+          <div class="notice">Configurá tu número de WhatsApp Business API. El número actual no se modifica.</div>
+          <div class="form-grid" style="margin-top:12px;">
+            <div class="form-group">
+              <label class="form-label">Phone Number ID</label>
+              <input class="form-input" id="wa-phone-id" type="text" placeholder="123456789012345">
+            </div>
+            <div class="form-group">
+              <label class="form-label">WhatsApp Business Account ID</label>
+              <input class="form-input" id="wa-waba-id" type="text" placeholder="987654321098765">
+            </div>
+            <div class="form-group full">
+              <label class="form-label">Access Token</label>
+              <div class="pass-wrap">
+                <input class="form-input" id="wa-token" type="password" placeholder="EAAVeZ...">
+                <button class="eye-btn" onclick="toggleEye('wa-token',this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Webhook Verify Token</label>
+              <input class="form-input" id="wa-verify" type="text" placeholder="mi_token_secreto">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Número activo</label>
+              <input class="form-input" id="wa-numero" type="text" placeholder="+54 9 351 XXX XXXX">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarConfigWA()"><i class="ti ti-device-floppy"></i> Guardar</button>
+            <button class="btn btn-secondary btn-sm" onclick="testWebhook()"><i class="ti ti-plug"></i> Probar webhook</button>
+            <span id="wa-status" style="font-size:12px;color:var(--text3);align-self:center;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Firebase -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('firebase')">
+          <span class="admin-card-title"><i class="ti ti-database" style="color:var(--amber)"></i> Firebase / Base de datos</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-firebase"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-firebase">
+          <div class="notice">Esta es la misma base de datos que usa el CRMH. Los cambios se sincronizan en tiempo real.</div>
+          <div class="form-grid" style="margin-top:12px;">
+            <div class="form-group full">
+              <label class="form-label">API Key</label>
+              <div class="pass-wrap">
+                <input class="form-input" id="fb-apikey" type="password" placeholder="AIzaSy...">
+                <button class="eye-btn" onclick="toggleEye('fb-apikey',this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Project ID</label>
+              <input class="form-input" id="fb-projectid" type="text" placeholder="ct-usuarios-clientes">
+            </div>
+            <div class="form-group">
+              <label class="form-label">App ID</label>
+              <input class="form-input" id="fb-appid" type="text" placeholder="1:538162661061:web:...">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarConfigFirebase()"><i class="ti ti-device-floppy"></i> Guardar y reconectar</button>
+            <span id="fb-status" style="font-size:12px;color:var(--text3);align-self:center;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Meta CAPI -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('meta')">
+          <span class="admin-card-title"><i class="ti ti-chart-bar" style="color:var(--blue)"></i> Meta — API de Conversiones</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-meta"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-meta">
+          <div class="form-grid" style="margin-top:4px;">
+            <div class="form-group full">
+              <label class="form-label">Pixel ID</label>
+              <input class="form-input" id="meta-pixel" type="text" placeholder="1331124815328957">
+            </div>
+            <div class="form-group full">
+              <label class="form-label">Access Token CAPI</label>
+              <div class="pass-wrap">
+                <input class="form-input" id="meta-token" type="password" placeholder="EAAVeZ...">
+                <button class="eye-btn" onclick="toggleEye('meta-token',this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Cotización USD (ARS por 1 USD)</label>
+              <input class="form-input" id="meta-cotiz" type="text" placeholder="1450">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Código de prueba (opcional)</label>
+              <input class="form-input" id="meta-test" type="text" placeholder="TEST12345">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarConfigMeta()"><i class="ti ti-device-floppy"></i> Guardar</button>
+            <span id="meta-status" style="font-size:12px;color:var(--text3);align-self:center;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Google Drive -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('drive')">
+          <span class="admin-card-title"><i class="ti ti-brand-google-drive" style="color:var(--blue)"></i> Google Drive — Almacenamiento</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-drive"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-drive">
+          <div class="notice">Los archivos multimedia se guardan en carpetas por cliente. Podés agregar N cuentas cuando una se llene.</div>
+          <div id="drive-cuentas-list" style="margin-bottom:14px;"></div>
+          <div class="form-grid">
+            <div class="form-group full">
+              <label class="form-label">Agregar cuenta de Google Drive</label>
+              <input class="form-input" id="drive-nueva-cuenta" type="text" placeholder="casatecno@gmail.com">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="agregarCuentaDrive()"><i class="ti ti-plus"></i> Conectar cuenta</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- JSONBin -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('jsonbin')">
+          <span class="admin-card-title"><i class="ti ti-code" style="color:var(--purple)"></i> JSONBin — Datos técnicos de leads</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-jsonbin"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-jsonbin">
+          <div class="form-group">
+            <label class="form-label">Master Key</label>
+            <div class="pass-wrap">
+              <input class="form-input" id="jb-key" type="password" placeholder="$2a$10$...">
+              <button class="eye-btn" onclick="toggleEye('jb-key',this)">👁️</button>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarConfigJsonbin()"><i class="ti ti-device-floppy"></i> Guardar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Usuarios -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('usuarios')">
+          <span class="admin-card-title"><i class="ti ti-users" style="color:var(--accent)"></i> Usuarios y accesos</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-usuarios"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-usuarios">
+          <div class="notice">Los usuarios son compartidos con el CRMH. Rol Admin y Editor pueden acceder a esta sección.</div>
+          <div id="usuarios-list" style="margin-bottom:12px;"></div>
+          <button class="btn btn-secondary btn-sm" onclick="abrirNuevoUsuario()"><i class="ti ti-plus"></i> Agregar usuario</button>
+        </div>
+      </div>
+
+      <!-- Mensajes automáticos -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('mensajes-auto')">
+          <span class="admin-card-title"><i class="ti ti-message-2" style="color:var(--green)"></i> Textos de mensajes automáticos</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-mensajes-auto"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-mensajes-auto">
+          <div class="notice">Usá: <code>{{nombre}}</code> <code>{{id}}</code> <code>{{total}}</code> <code>{{abona}}</code> <code>{{falta}}</code> <code>{{descripcion}}</code></div>
+          <div style="margin-top:12px;">
+            <div class="admin-section-title">Nueva Compra</div>
+            <div class="form-group" style="margin-bottom:10px;">
+              <label class="form-label">Mensaje al cliente</label>
+              <textarea class="form-input" id="msg-compra" rows="3" placeholder="Hola {{nombre}}, tu pedido {{id}} está registrado. Abonaste ${{abona}}, saldo pendiente ${{falta}}. Ver comprobante: https://diegom472.github.io/casatecno-crm/?comprobante={{id}}"></textarea>
+            </div>
+            <div class="admin-section-title">Pedido Listo</div>
+            <div class="form-group">
+              <label class="form-label">Mensaje al cliente</label>
+              <textarea class="form-input" id="msg-listo" rows="3" placeholder="Hola {{nombre}}, tu pedido {{id}} está listo para retirar. {{descripcion}}"></textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarMensajesAuto()"><i class="ti ti-device-floppy"></i> Guardar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modo edición -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('edicion')">
+          <span class="admin-card-title"><i class="ti ti-palette" style="color:var(--amber)"></i> Apariencia — Modo edición</span>
+          <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-edicion"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-edicion">
+          <p style="font-size:12px;color:var(--text2);margin-bottom:14px;">Activá el modo edición para cambiar textos y colores de botones directamente en la interfaz.</p>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Color acento</label>
+              <input type="color" value="#e83a2f" id="color-accent" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;" onchange="actualizarColor('accent',this.value)">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Color verde</label>
+              <input type="color" value="#1d9e75" id="color-green" style="width:100%;height:38px;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;" onchange="actualizarColor('green',this.value)">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-amber btn-sm" onclick="activarModoEdicion()"><i class="ti ti-pencil"></i> Activar modo edición</button>
+            <button class="btn btn-secondary btn-sm" onclick="resetearColores()"><i class="ti ti-refresh"></i> Resetear colores</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /page-admin -->
+
+</div><!-- /app -->
+
+<!-- ══ MODALES ══ -->
+
+<!-- Modal Nueva Compra / Servicio -->
+<div class="modal-overlay" id="modal-compra">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-title">
+      <span id="modal-compra-title">Nueva Compra</span>
+      <button class="modal-close" onclick="cerrarModal('modal-compra')">✕</button>
+    </div>
+    <div id="modal-compra-body">
+      <!-- Se llena dinámicamente desde conversaciones.js -->
+    </div>
+  </div>
+</div>
+
+<!-- Modal Mensaje Programado -->
+<div class="modal-overlay" id="modal-programado">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-title">
+      <span id="modal-prog-title">Programar nuevo mensaje</span>
+      <button class="modal-close" onclick="cerrarModal('modal-programado')">✕</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Fecha y hora</label>
+        <input class="form-input" id="prog-datetime" type="datetime-local">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Título</label>
+        <input class="form-input" id="prog-titulo" type="text" placeholder="Duda R7 vs R5...">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Descripción corta</label>
+        <input class="form-input" id="prog-desc" type="text" placeholder="Se muestra en el nodal...">
+      </div>
+    </div>
+    <div id="prog-mensajes-container">
+      <!-- Mensajes dinámicos -->
+      <div class="form-group" style="margin-top:10px;">
+        <label class="form-label">Mensaje 1</label>
+        <textarea class="form-input" id="prog-msg-1" rows="3" placeholder="Texto del mensaje..."></textarea>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn btn-secondary btn-xs" onclick="usarTemplate(1)"><i class="ti ti-layout-grid"></i> Template</button>
+          <button class="btn btn-secondary btn-xs" onclick="grabarAudio(1)"><i class="ti ti-microphone"></i> Audio</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-secondary btn-sm" onclick="agregarMensajeProg()"><i class="ti ti-plus"></i> Mensaje 2</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="agendarMensaje()"><i class="ti ti-clock"></i> Agendar</button>
+      <button class="btn btn-secondary" onclick="actualizarMensajeProg()"><i class="ti ti-refresh"></i> Actualizar</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-programado')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Recordatorio -->
+<div class="modal-overlay" id="modal-recordatorio">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-title">
+      Nuevo recordatorio
+      <button class="modal-close" onclick="cerrarModal('modal-recordatorio')">✕</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Fecha y hora</label>
+        <input class="form-input" id="rec-datetime" type="datetime-local">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Título</label>
+        <input class="form-input" id="rec-titulo" type="text" placeholder="Título del recordatorio...">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Descripción</label>
+        <textarea class="form-input" id="rec-desc" rows="3" placeholder="Detalles del recordatorio..."></textarea>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="guardarRecordatorio()"><i class="ti ti-check"></i> Agendar</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-recordatorio')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Tarea -->
+<div class="modal-overlay" id="modal-tarea">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-title">
+      <span id="modal-tarea-title">Nueva tarea</span>
+      <button class="modal-close" onclick="cerrarModal('modal-tarea')">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Título</label>
+      <input class="form-input" id="tarea-titulo" type="text" placeholder="Título de la tarea...">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Detalles</label>
+      <textarea class="form-input" id="tarea-detalles" rows="4" placeholder="Detalles de la tarea..."></textarea>
+    </div>
+    <div id="tarea-recordatorios-list" style="margin-bottom:10px;"></div>
+    <button class="btn btn-secondary btn-sm" onclick="agregarRecordatorioTarea()"><i class="ti ti-plus"></i> Agregar recordatorio</button>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="guardarTarea()"><i class="ti ti-check"></i> Crear</button>
+      <button class="btn btn-secondary" onclick="actualizarTarea()"><i class="ti ti-refresh"></i> Actualizar</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-tarea')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Historial Búsquedas -->
+<div class="modal-overlay" id="modal-historial-busqueda">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-title">
+      Historial de búsquedas
+      <button class="modal-close" onclick="cerrarModal('modal-historial-busqueda')">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+      <input type="date" class="form-input" id="hist-fecha-desde" style="flex:1;font-size:12px;padding:5px 9px;">
+      <span style="font-size:12px;color:var(--text3);">—</span>
+      <input type="date" class="form-input" id="hist-fecha-hasta" style="flex:1;font-size:12px;padding:5px 9px;">
+      <button class="btn btn-secondary btn-sm" onclick="filtrarHistorialBusqueda()">Filtrar</button>
+    </div>
+    <div class="hist-list" id="hist-busqueda-list">
+      <div style="text-align:center;padding:20px;color:var(--text3);">Sin búsquedas anteriores</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Pendientes Admin -->
+<div class="modal-overlay" id="modal-pendientes-admin">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-title">
+      Pendientes de operadores
+      <button class="modal-close" onclick="cerrarModal('modal-pendientes-admin')">✕</button>
+    </div>
+    <div style="margin-bottom:12px;">
+      <select class="form-select" id="pend-admin-operador" onchange="cargarPendientesDeOperador(this.value)" style="font-size:13px;">
+        <option value="">— Seleccionar operador —</option>
+      </select>
+    </div>
+    <div id="pend-admin-list"></div>
+  </div>
+</div>
+
+<!-- Modal Crear Lead -->
+<div class="modal-overlay" id="modal-crear-lead">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title">
+      Crear evento Lead
+      <button class="modal-close" onclick="cerrarModal('modal-crear-lead')">✕</button>
+    </div>
+    <div class="notice" style="margin-bottom:12px;">Se enviará a Meta CAPI con todos los datos disponibles.</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Nombre (si no está cargado)</label>
+        <input class="form-input" id="lead-nombre" type="text" placeholder="Nombre del cliente">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Importe estimado (ARS)</label>
+        <input class="form-input" id="lead-importe" type="text" placeholder="1500000">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-success" onclick="enviarEventoLead()"><i class="ti ti-bolt"></i> Enviar Lead a Meta</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-crear-lead')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Scripts -->
+<script src="js/app.js"></script>
+<script src="js/conversaciones.js"></script>
+<script src="js/predefinidos.js"></script>
+<script src="js/embudo.js"></script>
+<script src="js/tareas.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>
