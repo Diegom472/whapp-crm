@@ -205,6 +205,12 @@ function abrirDetalleTarea(id) {
   document.getElementById('tarea-detalles').value = t.detalles || '';
   document.getElementById('modal-tarea').dataset.editId = id;
 
+  // Mostrar/ocultar botón finalizar
+  const btnFin = document.getElementById('btn-finalizar-tarea');
+  const btnCrear = document.querySelector('#modal-tarea .btn-primary');
+  if (btnFin) btnFin.style.display = t.realizada ? 'none' : 'inline-flex';
+  if (btnCrear) btnCrear.style.display = 'none';
+
   // Recordatorios
   const recList = S.recordatorios.filter(r => r.tareaId === id);
   document.getElementById('tarea-recordatorios-list').innerHTML = recList.map(r => `
@@ -213,6 +219,13 @@ function abrirDetalleTarea(id) {
     </div>`).join('');
 
   abrirModal('modal-tarea');
+}
+
+function finalizarTareaDesdeModal() {
+  const id = document.getElementById('modal-tarea').dataset.editId;
+  if (!id) return;
+  cerrarModal('modal-tarea');
+  finalizarTarea(id);
 }
 
 function guardarTarea() {

@@ -279,36 +279,118 @@ async function subirArchivo(file) {
   showToast('Archivo enviado');
 }
 
-// ── TOGGLE AUDIO (grabación) ──
+// ── GRABADOR DE AUDIO ──
 let mediaRecorder = null;
 let audioChunks   = [];
+let audioBlob     = null;
+let recTimer      = null;
+let recSeconds    = 0;
+let recPaused     = false;
 
-async function toggleAudio() {
-  const btn = document.getElementById('btn-audio');
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
-    btn.innerHTML = '<i class="ti ti-microphone"></i>';
-    btn.style.color = '';
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+function iniciarAudio() {
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     audioChunks = [];
+    recSeconds  = 0;
+    recPaused   = false;
     mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
     mediaRecorder.onstop = () => {
-      const blob = new Blob(audioChunks, { type: 'audio/ogg; codecs=opus' });
-      subirArchivo(new File([blob], `audio_${Date.now()}.ogg`, { type: blob.type }));
       stream.getTracks().forEach(t => t.stop());
+      audioBlob = new Blob(audioChunks, { type: 'audio/ogg; codecs=opus' });
+      mostrarPreviewAudio(audioBlob);
     };
-    mediaRecorder.start();
-    btn.innerHTML = '<i class="ti ti-square" style="color:var(--accent)"></i>';
-    btn.style.color = 'var(--accent)';
-    showToast('Grabando... pulsá para detener', 'warn');
-  } catch(e) {
-    showToast('No se pudo acceder al micrófono', 'error');
+    mediaRecorder.start(100);
+
+    // Mostrar barra de grabación
+    document.getElementById('audio-recording-bar').classList.add('active');
+    document.getElementById('chat-input-area') && (document.querySelector('.chat-input-area').style.display = 'none');
+
+    // Timer
+    recTimer = setInterval(() => {
+      if (!recPaused) {
+        recSeconds++;
+        const m = Math.floor(recSeconds/60);
+        const s = recSeconds % 60;
+        const el = document.getElementById('audio-rec-time');
+        if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+      }
+    }, 1000);
+
+    document.getElementById('btn-audio').classList.add('recording');
+  }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
+}
+
+function pausarAudio() {
+  if (!mediaRecorder) return;
+  const btn = document.getElementById('btn-pause-audio');
+  if (recPaused) {
+    mediaRecorder.resume();
+    recPaused = false;
+    btn.innerHTML = '<i class="ti ti-player-pause"></i>';
+    btn.style.color = 'var(--amber)';
+  } else {
+    mediaRecorder.pause();
+    recPaused = true;
+    btn.innerHTML = '<i class="ti ti-player-play"></i>';
+    btn.style.color = 'var(--green)';
   }
 }
+
+function detenerYPrevisualizar() {
+  if (!mediaRecorder) return;
+  clearInterval(recTimer);
+  mediaRecorder.stop();
+  document.getElementById('audio-recording-bar').classList.remove('active');
+  document.getElementById('btn-audio').classList.remove('recording');
+}
+
+function cancelarAudio() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  clearInterval(recTimer);
+  audioChunks = [];
+  audioBlob   = null;
+  document.getElementById('audio-recording-bar').classList.remove('active');
+  document.getElementById('audio-preview-bar').classList.remove('active');
+  document.querySelector('.chat-input-area').style.display = '';
+  document.getElementById('btn-audio').classList.remove('recording');
+  recSeconds = 0;
+}
+
+function mostrarPreviewAudio(blob) {
+  const url = URL.createObjectURL(blob);
+  const player = document.getElementById('audio-preview-player');
+  player.src = url;
+  document.getElementById('audio-preview-bar').classList.add('active');
+}
+
+function confirmarEnvioAudio() {
+  if (!audioBlob || !S.convActiva) return;
+  const url = URL.createObjectURL(audioBlob);
+  const file = new File([audioBlob], `audio_${Date.now()}.ogg`, { type: audioBlob.type });
+  const msg = {
+    id:   generarId('MSG'),
+    tipo: 'audio',
+    url:  url,
+    nombre: file.name,
+    dir:  'out',
+    ts:   Date.now(),
+    operador: S.usuario?.nombre
+  };
+  if (!S.mensajesCache[S.convActiva.phone]) S.mensajesCache[S.convActiva.phone] = [];
+  S.mensajesCache[S.convActiva.phone].push(msg);
+  renderMensajes(S.convActiva.phone);
+  cancelarPreviewAudio();
+  showToast('Audio enviado');
+}
+
+function cancelarPreviewAudio() {
+  audioBlob = null;
+  document.getElementById('audio-preview-bar').classList.remove('active');
+  document.querySelector('.chat-input-area').style.display = '';
+}
+
+// Mantener toggleAudio como alias por compatibilidad
+function toggleAudio() { iniciarAudio(); }
 
 // ── BUSCAR EN CHAT ──
 function buscarEnChat() {
@@ -1148,49 +1230,47 @@ function renderPendientes() {
   const misBusquedas = S.busquedas.filter(b => b.operador === misEmail && !b.terminada);
   const misTareas    = S.tareas.filter(t => t.operador === misEmail && !t.realizada);
 
-  // Obtener orden guardado o usar default
-  if (!S.pendOrden) S.pendOrden = [];
-
-  let items = [
-    ...misBusquedas.map(b => ({ ...b, _tipo: 'busqueda' })),
-    ...misTareas.map(t => ({ ...t, _tipo: 'tarea' }))
-  ];
-
   let html = '';
-  items.forEach(item => {
-    if (item._tipo === 'busqueda') {
-      const conv = S.conversaciones.find(c => c.phone === item.phone);
-      html += `<div class="nodal busqueda" draggable="true"
-        data-id="${item.id}" data-tipo="busqueda"
-        onclick="abrirDesdeNodal('${item.phone}')"
-        oncontextmenu="event.preventDefault();finalizarDesdeNodal('busqueda','${item.id}')"
-        ondragstart="dragNodal(event,this)"
-        ondragover="event.preventDefault()"
-        ondrop="dropNodal(event,this)">
-        <div class="nodal-type">Búsqueda</div>
-        <div class="nodal-name">${escHtml(conv?.nombre || item.phone)}</div>
-        <div class="nodal-sub">${escHtml(item.prop1||item.palabras||'')}</div>
-        <div class="nodal-tags">
-          ${item.tipo ? `<span class="nodal-tag gamer">${escHtml(item.tipo)}</span>` : ''}
-          ${item.rango ? `<span class="nodal-tag price">${escHtml(item.rango.slice(0,12))}</span>` : ''}
-        </div>
-      </div>`;
-    } else {
-      html += `<div class="nodal tarea" draggable="true"
-        data-id="${item.id}" data-tipo="tarea"
-        ondblclick="abrirDetalleTarea('${item.id}')"
-        oncontextmenu="event.preventDefault();finalizarTareaDesdeNodal('${item.id}')"
-        ondragstart="dragNodal(event,this)"
-        ondragover="event.preventDefault()"
-        ondrop="dropNodal(event,this)">
-        <div class="nodal-type">Tarea</div>
-        <div class="nodal-name">${escHtml(item.titulo)}</div>
-        <div class="nodal-sub">${escHtml((item.detalles||'').slice(0,40))}</div>
-        <div class="nodal-tags">
-          <span class="nodal-tag date">${item.fecha||''}</span>
-        </div>
-      </div>`;
-    }
+
+  misBusquedas.forEach(b => {
+    const conv = S.conversaciones.find(c => c.phone === b.phone);
+    const nombre = conv?.nombre || b.phone;
+    html += `<div class="nodal busqueda" draggable="true"
+      data-id="${b.id}" data-tipo="busqueda"
+      onclick="abrirDesdeNodal('${b.phone}')"
+      oncontextmenu="event.preventDefault();finalizarDesdeNodal('busqueda','${b.id}')"
+      ondragstart="dragNodal(event,this)"
+      ondragend="dragEndNodal(this)"
+      ondragover="dragOverNodal(event,this)"
+      ondrop="dropNodal(event,this)">
+      <div class="nodal-type">Búsqueda</div>
+      <div class="nodal-name">${escHtml(nombre)}</div>
+      ${b.tipo ? `<div class="nodal-sub">${escHtml(b.tipo)}</div>` : ''}
+      ${b.prop1 ? `<div class="nodal-sub" style="font-size:10px;color:var(--nodal-busqueda-text);">${escHtml(b.prop1)}</div>` : ''}
+      ${b.prop2 ? `<div class="nodal-sub" style="font-size:10px;color:var(--nodal-busqueda-text);">${escHtml(b.prop2)}</div>` : ''}
+      ${b.prop3 ? `<div class="nodal-sub" style="font-size:10px;color:var(--nodal-busqueda-text);">${escHtml(b.prop3)}</div>` : ''}
+      <div class="nodal-tags">
+        ${b.rango ? `<span class="nodal-tag price">${escHtml(b.rango.slice(0,18))}</span>` : ''}
+      </div>
+    </div>`;
+  });
+
+  misTareas.forEach(t => {
+    html += `<div class="nodal tarea" draggable="true"
+      data-id="${t.id}" data-tipo="tarea"
+      ondblclick="abrirDetalleTarea('${t.id}')"
+      oncontextmenu="event.preventDefault();finalizarTareaDesdeNodal('${t.id}')"
+      ondragstart="dragNodal(event,this)"
+      ondragend="dragEndNodal(this)"
+      ondragover="dragOverNodal(event,this)"
+      ondrop="dropNodal(event,this)">
+      <div class="nodal-type">Tarea</div>
+      <div class="nodal-name">${escHtml(t.titulo)}</div>
+      <div class="nodal-sub">${escHtml((t.detalles||'').slice(0,60))}</div>
+      <div class="nodal-tags">
+        <span class="nodal-tag date">${t.fecha||''}</span>
+      </div>
+    </div>`;
   });
 
   container.innerHTML = html ||
@@ -1203,23 +1283,36 @@ function dragNodal(e, el) {
   dragSrcNodal = el;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', el.dataset.id);
-  setTimeout(() => el.style.opacity = '0.4', 0);
+  // NO cambiar opacidad — eso causaba el difuminado
+  el.classList.add('dragging');
+}
+
+function dragEndNodal(el) {
+  el.classList.remove('dragging');
+  el.classList.remove('drag-over');
+  document.querySelectorAll('.nodal').forEach(n => n.classList.remove('drag-over'));
+}
+
+function dragOverNodal(e, el) {
+  e.preventDefault();
+  if (dragSrcNodal && dragSrcNodal !== el) {
+    document.querySelectorAll('.nodal').forEach(n => n.classList.remove('drag-over'));
+    el.classList.add('drag-over');
+  }
 }
 
 function dropNodal(e, el) {
   e.stopPropagation();
+  e.preventDefault();
+  document.querySelectorAll('.nodal').forEach(n => { n.classList.remove('drag-over'); n.classList.remove('dragging'); });
   if (dragSrcNodal && dragSrcNodal !== el) {
     const container = document.getElementById('pend-inner');
     const nodes = [...container.querySelectorAll('.nodal')];
     const srcIdx = nodes.indexOf(dragSrcNodal);
     const dstIdx = nodes.indexOf(el);
-    if (srcIdx < dstIdx) {
-      el.after(dragSrcNodal);
-    } else {
-      el.before(dragSrcNodal);
-    }
+    if (srcIdx < dstIdx) el.after(dragSrcNodal);
+    else el.before(dragSrcNodal);
   }
-  dragSrcNodal.style.opacity = '1';
   dragSrcNodal = null;
 }
 
@@ -1326,5 +1419,107 @@ function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── ETIQUETAR ──
-function abrirEtiquetarModal() { showToast('Sistema de etiquetas (próximamente)', 'warn'); }
+// ── EMOTICONES ──
+const EMOJIS = ['😀','😂','🤣','😊','😍','🥰','😎','🤩','😇','🙏','👍','👎','❤️','🔥','⚡','🎮','💻','🖥️','📦','✅','❌','⭐','💰','🎯','📞','💬','🚀','💪','🏆','🎁','📸','📄','🔧','⚙️','🛒','💳','📱','🖱️','⌨️','🎧','🖨️','📡','🔌','💡','🔋','📊','📈','📉','🗓️','⏰','📍','🏠','🏢','🚗','✈️','🌎','🌟','💫','✨','🎉','🎊','👋','🤝','👀','💭','❓','❗','➡️','⬅️','↩️','🔄'];
+
+let emojisFiltrados = [...EMOJIS];
+
+function toggleEmojiPanel() {
+  const panel = document.getElementById('emoji-panel');
+  if (!panel) return;
+  const isOpen = panel.classList.toggle('open');
+  if (isOpen) renderEmojiGrid(EMOJIS);
+  // Cerrar al hacer click afuera
+  if (isOpen) {
+    setTimeout(() => {
+      document.addEventListener('click', cerrarEmojiAlClickAfuera, { once: true });
+    }, 100);
+  }
+}
+
+function cerrarEmojiAlClickAfuera(e) {
+  const panel = document.getElementById('emoji-panel');
+  if (panel && !panel.contains(e.target)) panel.classList.remove('open');
+}
+
+function renderEmojiGrid(lista) {
+  const grid = document.getElementById('emoji-grid');
+  if (!grid) return;
+  grid.innerHTML = lista.map(e =>
+    `<button class="emoji-btn" onclick="insertarEmoji('${e}')">${e}</button>`
+  ).join('');
+}
+
+function filtrarEmojis(q) {
+  renderEmojiGrid(q ? EMOJIS.filter(e => e.includes(q)) : EMOJIS);
+}
+
+function insertarEmoji(emoji) {
+  const input = document.getElementById('msg-input');
+  if (!input) return;
+  const pos = input.selectionStart || input.value.length;
+  input.value = input.value.slice(0, pos) + emoji + input.value.slice(pos);
+  input.focus();
+  input.selectionStart = input.selectionEnd = pos + emoji.length;
+  document.getElementById('emoji-panel')?.classList.remove('open');
+}
+
+// ── ETIQUETAS ──
+const ETIQUETAS_DEFAULT = [
+  { texto: 'GAMER ALTA',   color: 'var(--blue)',   bg: 'var(--blue-dim)' },
+  { texto: 'PROFESIONAL',  color: 'var(--purple)', bg: 'var(--purple-dim)' },
+  { texto: 'CALIENTE',     color: 'var(--accent)', bg: 'var(--accent-dim)' },
+  { texto: 'EN PROCESO',   color: 'var(--amber)',  bg: 'var(--amber-dim)' },
+  { texto: 'PAGÓ',         color: 'var(--green)',  bg: 'var(--green-dim)' },
+  { texto: 'ESPERANDO',    color: 'var(--text2)',  bg: 'var(--bg4)' },
+];
+
+function abrirEtiquetarModal() {
+  if (!S.convActiva) return;
+  const panel = document.getElementById('etiquetas-panel');
+  if (!panel) return;
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) renderEtiquetasPanel();
+}
+
+function renderEtiquetasPanel() {
+  const container = document.getElementById('etiquetas-chips');
+  if (!container) return;
+  const etiquetas = S.config.etiquetas || ETIQUETAS_DEFAULT;
+  const conv = S.convActiva;
+  const activas = conv?.etiquetas || [];
+
+  container.innerHTML = etiquetas.map((et, i) => {
+    const sel = activas.includes(et.texto);
+    return `<span class="etiqueta-chip ${sel ? 'selected' : ''}"
+      style="background:${et.bg};color:${et.color};border-color:${sel ? et.color : 'transparent'}"
+      onclick="toggleEtiqueta('${escHtml(et.texto)}')">
+      ${escHtml(et.texto)}
+      ${sel ? ' ✓' : ''}
+    </span>`;
+  }).join('');
+}
+
+function toggleEtiqueta(texto) {
+  if (!S.convActiva) return;
+  const conv = S.conversaciones.find(c => c.phone === S.convActiva.phone);
+  if (!conv) return;
+  if (!conv.etiquetas) conv.etiquetas = [];
+  const idx = conv.etiquetas.indexOf(texto);
+  if (idx >= 0) conv.etiquetas.splice(idx, 1);
+  else conv.etiquetas.push(texto);
+  saveToFirebase('crmw_conversaciones', S.conversaciones);
+  renderEtiquetasPanel();
+  renderTagsHeader(conv);
+}
+
+function agregarEtiqueta() {
+  const input = document.getElementById('nueva-etiqueta-input');
+  if (!input?.value.trim()) return;
+  if (!S.config.etiquetas) S.config.etiquetas = [...ETIQUETAS_DEFAULT];
+  S.config.etiquetas.push({ texto: input.value.trim().toUpperCase(), color: 'var(--text2)', bg: 'var(--bg4)' });
+  input.value = '';
+  saveLocal();
+  renderEtiquetasPanel();
+  showToast('Etiqueta agregada');
+}
