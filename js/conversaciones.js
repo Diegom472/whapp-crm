@@ -702,11 +702,16 @@ function guardarNuevaBusqueda() {
 
 function actualizarBusqueda() {
   if (!S.convActiva) return;
-  autosaveBusqueda();
+  // Cancelar cualquier autosave pendiente para evitar conflictos
   clearTimeout(busquedaAutoSaveTimer);
+
   const phone = S.convActiva.phone;
   let busq = S.busquedas.find(b => b.phone === phone && !b.terminada);
+
+  // Si no existe una búsqueda activa, crear una nueva
   if (!busq) { guardarNuevaBusqueda(); return; }
+
+  // Actualizar los campos
   busq.palabras  = document.getElementById('b-palabras').value;
   busq.tipo      = document.getElementById('b-tipo').value;
   busq.rango     = document.getElementById('b-rango').value;
@@ -715,8 +720,10 @@ function actualizarBusqueda() {
   busq.prop3     = document.getElementById('b-prop3').value;
   busq.guardada  = true;
   busq.updatedAt = Date.now();
+
   saveToFirebase('crmw_busquedas', S.busquedas);
-  renderPendientes();
+  renderPendientes();          // ← redibuja los nodales con datos nuevos
+  renderTagsHeader(S.convActiva);
   showToast('Búsqueda actualizada');
 }
 
