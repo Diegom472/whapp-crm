@@ -573,18 +573,34 @@ function buildFiltroCard(f, i) {
       <div style="display:flex;gap:5px;">
         <span style="font-size:10px;padding:2px 7px;border-radius:4px;${f.activo ? 'background:var(--green-dim);color:var(--green)' : 'background:var(--bg3);color:var(--text3)'}">${f.activo ? 'Activo' : 'Inactivo'}</span>
         <button class="btn btn-secondary btn-xs" onclick="toggleFiltroActivo(${i})">${f.activo ? 'Desactivar' : 'Activar'}</button>
+        <button class="btn btn-blue btn-xs" onclick="abrirEditorFiltro(${i})"><i class="ti ti-edit"></i> Editar</button>
         <button class="btn btn-secondary btn-xs" onclick="eliminarFiltro(${i})"><i class="ti ti-trash"></i></button>
       </div>
     </div>
     <div style="font-size:12px;color:var(--text2);line-height:1.7;">
       <strong>Palabras clave:</strong> ${escHtml((f.palabrasClave||[]).join(', ') || '—')}<br>
       <strong>Bloquea hasta completar:</strong> ${f.bloquearHastaCompletar ? 'Sí' : 'No'}<br>
-      <strong>Pasos / ramas:</strong> ${pasoCount}<br>
-      ${f.ramas ? `<strong>Flujo:</strong> Inicio → Gamer / Profesional / Otras → Periféricos → Cuándo → Componentes → Cierre` : ''}
+      <strong>Pasos / ramas:</strong> ${pasoCount}
+      ${f.ramas ? `<br><strong>Flujo:</strong> Inicio → Gamer / Profesional / Otras → Periféricos → Cuándo → Componentes → Cierre` : ''}
     </div>
     ${f.ramas ? `<div style="margin-top:10px;background:var(--bg3);border-radius:var(--radius);padding:10px;font-size:11px;color:var(--text3);">
-      💡 Este filtro replica el flujo de <strong>filtro.pages.dev</strong> con todas sus ramas. Se activa automáticamente cuando el cliente escribe una de las palabras clave.
+      💡 Este filtro replica el flujo de <strong>filtro.pages.dev</strong>. Se activa automáticamente con las palabras clave.
     </div>` : ''}
+    <!-- Reglas de causalidad -->
+    <div style="margin-top:12px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:7px;">Reglas Si → Entonces</div>
+      <div id="reglas-list-${i}">
+        ${(f.reglas||[]).map((r,ri) => `
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;margin-bottom:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:10px;font-weight:700;color:var(--text3);">SI</span>
+            <span style="background:var(--accent-dim);color:var(--accent);padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">${escHtml(r.trigger)}</span>
+            <span style="font-size:10px;font-weight:700;color:var(--text3);">→</span>
+            <span style="background:var(--green-dim);color:var(--green);padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">${escHtml(r.accion)}: ${escHtml((r.respuesta||'').slice(0,30))}</span>
+            <button class="btn btn-secondary btn-xs" onclick="eliminarRegla(${i},${ri})" style="margin-left:auto;"><i class="ti ti-x"></i></button>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="abrirNuevaRegla(${i})" style="margin-top:5px;"><i class="ti ti-plus"></i> Agregar regla Si→Entonces</button>
+    </div>
   </div>`;
 }
 
@@ -765,7 +781,177 @@ function toggleFiltroActivo(i) {
   saveLocal();
   renderPredefinidos();
 }
-function editarFiltro(i) { showToast('Editor visual de pasos (próxima versión)', 'warn'); }
+function editarFiltro(i) { abrirEditorFiltro(i); }
+
+function abrirEditorFiltro(i) {
+  const f = S.config.filtros[i];
+  if (!f) return;
+  const modal = document.getElementById('modal-editor-filtro');
+  if (!modal) return;
+  document.getElementById('ef-idx').value = i;
+  document.getElementById('ef-nombre').value = f.nombre || '';
+  document.getElementById('ef-palabras').value = (f.palabrasClave||[]).join(', ');
+  document.getElementById('ef-campanas').value = (f.campanas||[]).join(', ');
+  document.getElementById('ef-bloquear').checked = f.bloquearHastaCompletar !== false;
+  renderPasosEditor(f);
+  abrirModal('modal-editor-filtro');
+}
+
+function renderPasosEditor(f) {
+  const container = document.getElementById('ef-pasos-list');
+  if (!container) return;
+  const pasos = f.pasos || [];
+  container.innerHTML = pasos.map((p, pi) => `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+        <span style="font-size:11px;font-weight:700;color:var(--text2);">PASO ${pi+1}</span>
+        <div style="display:flex;gap:4px;">
+          <select class="form-select" id="ef-paso-tipo-${pi}" style="font-size:11px;padding:3px 7px;width:auto;"
+            onchange="cambiarTipoPaso(${pi},this.value)">
+            <option value="texto" ${p.tipo==='texto'||!p.tipo?'selected':''}>Texto</option>
+            <option value="botones" ${p.tipo==='botones'?'selected':''}>Menú de botones</option>
+            <option value="imagen" ${p.tipo==='imagen'?'selected':''}>Imagen</option>
+            <option value="video" ${p.tipo==='video'?'selected':''}>Video</option>
+          </select>
+          <button class="btn btn-secondary btn-xs" onclick="eliminarPasoEditor(${pi})"><i class="ti ti-trash"></i></button>
+        </div>
+      </div>
+      <textarea class="form-input" id="ef-paso-msg-${pi}" rows="2" placeholder="Mensaje..."
+        style="font-size:12px;">${escHtml(p.msj||p.mensaje||'')}</textarea>
+      ${p.tipo === 'botones' ? renderBotonesEditor(p.botones||[], pi) : ''}
+      <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="ef-paso-esperar-${pi}" ${p.esperar!==false?'checked':''}>
+          Esperar respuesta
+        </label>
+      </div>
+    </div>`).join('') + `
+    <button class="btn btn-secondary btn-sm" onclick="agregarPasoEditor()">
+      <i class="ti ti-plus"></i> Agregar paso
+    </button>`;
+}
+
+function renderBotonesEditor(botones, pi) {
+  return `<div id="ef-botones-${pi}" style="margin-top:7px;">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:5px;">Botones (máx. 3 para WhatsApp)</div>
+    ${botones.map((b, bi) => `
+      <div style="display:flex;gap:5px;margin-bottom:5px;align-items:center;">
+        <input class="form-input" value="${escHtml(b.texto||'')}" placeholder="Texto del botón"
+          id="ef-btn-texto-${pi}-${bi}" style="flex:1;font-size:11px;">
+        <select class="form-select" id="ef-btn-accion-${pi}-${bi}" style="font-size:11px;padding:4px;width:110px;"
+          onchange="mostrarCampoAccion(${pi},${bi},this.value)">
+          <option value="respuesta" ${b.accion==='respuesta'?'selected':''}>Respuesta texto</option>
+          <option value="url" ${b.accion==='url'?'selected':''}>Abrir URL</option>
+          <option value="imagen" ${b.accion==='imagen'?'selected':''}>Enviar imagen</option>
+          <option value="menu" ${b.accion==='menu'?'selected':''}>Ir a paso</option>
+        </select>
+        <input class="form-input" value="${escHtml(b.valor||'')}" placeholder="URL / Texto / Paso N"
+          id="ef-btn-valor-${pi}-${bi}" style="flex:1.5;font-size:11px;">
+        <button class="btn btn-secondary btn-xs" onclick="eliminarBotonEditor(${pi},${bi})"><i class="ti ti-x"></i></button>
+      </div>`).join('')}
+    <button class="btn btn-secondary btn-xs" onclick="agregarBotonEditor(${pi})" ${botones.length>=3?'disabled':''}>
+      <i class="ti ti-plus"></i> Botón
+    </button>
+  </div>`;
+}
+
+function cambiarTipoPaso(pi, tipo) {
+  const i = parseInt(document.getElementById('ef-idx').value);
+  if (!S.config.filtros[i]) return;
+  if (!S.config.filtros[i].pasos) S.config.filtros[i].pasos = [];
+  if (S.config.filtros[i].pasos[pi]) {
+    S.config.filtros[i].pasos[pi].tipo = tipo;
+    if (tipo === 'botones' && !S.config.filtros[i].pasos[pi].botones) {
+      S.config.filtros[i].pasos[pi].botones = [];
+    }
+  }
+  renderPasosEditor(S.config.filtros[i]);
+}
+
+function agregarPasoEditor() {
+  const i = parseInt(document.getElementById('ef-idx').value);
+  if (!S.config.filtros[i].pasos) S.config.filtros[i].pasos = [];
+  S.config.filtros[i].pasos.push({ tipo: 'texto', msj: '', esperar: true });
+  renderPasosEditor(S.config.filtros[i]);
+}
+
+function eliminarPasoEditor(pi) {
+  const i = parseInt(document.getElementById('ef-idx').value);
+  S.config.filtros[i].pasos.splice(pi, 1);
+  renderPasosEditor(S.config.filtros[i]);
+}
+
+function agregarBotonEditor(pi) {
+  const i = parseInt(document.getElementById('ef-idx').value);
+  if (!S.config.filtros[i].pasos[pi].botones) S.config.filtros[i].pasos[pi].botones = [];
+  S.config.filtros[i].pasos[pi].botones.push({ texto: '', accion: 'respuesta', valor: '' });
+  renderPasosEditor(S.config.filtros[i]);
+}
+
+function eliminarBotonEditor(pi, bi) {
+  const i = parseInt(document.getElementById('ef-idx').value);
+  S.config.filtros[i].pasos[pi].botones.splice(bi, 1);
+  renderPasosEditor(S.config.filtros[i]);
+}
+
+function mostrarCampoAccion(pi, bi, accion) { /* ya visible en el input */ }
+
+function guardarEditorFiltro() {
+  const i = parseInt(document.getElementById('ef-idx').value);
+  const f = S.config.filtros[i];
+  if (!f) return;
+  f.nombre = document.getElementById('ef-nombre').value;
+  f.palabrasClave = document.getElementById('ef-palabras').value.split(',').map(p=>p.trim()).filter(Boolean);
+  f.campanas = document.getElementById('ef-campanas').value.split(',').map(c=>c.trim()).filter(Boolean);
+  f.bloquearHastaCompletar = document.getElementById('ef-bloquear').checked;
+
+  // Leer pasos del DOM
+  const pasos = f.pasos || [];
+  pasos.forEach((p, pi) => {
+    const msgEl = document.getElementById(`ef-paso-msg-${pi}`);
+    const espEl = document.getElementById(`ef-paso-esperar-${pi}`);
+    if (msgEl) p.msj = msgEl.value;
+    if (espEl) p.esperar = espEl.checked;
+    if (p.tipo === 'botones' && p.botones) {
+      p.botones.forEach((b, bi) => {
+        const textoEl = document.getElementById(`ef-btn-texto-${pi}-${bi}`);
+        const accionEl = document.getElementById(`ef-btn-accion-${pi}-${bi}`);
+        const valorEl = document.getElementById(`ef-btn-valor-${pi}-${bi}`);
+        if (textoEl) b.texto = textoEl.value;
+        if (accionEl) b.accion = accionEl.value;
+        if (valorEl) b.valor = valorEl.value;
+      });
+    }
+  });
+
+  saveLocal();
+  cerrarModal('modal-editor-filtro');
+  renderPredefinidos();
+  showToast('Filtro guardado');
+}
+
+// ── REGLAS SI → ENTONCES ──
+function abrirNuevaRegla(filtroIdx) {
+  const trigger  = prompt('Si el cliente escribe (palabra o frase):');
+  if (!trigger) return;
+  const acciones = ['texto', 'menu_botones', 'imagen', 'url'];
+  const accion   = prompt('Acción:\n1. Respuesta de texto\n2. Menú de botones\n3. Enviar imagen\n4. Abrir URL\n\nEscribí el número:');
+  const accionMap = { '1':'texto', '2':'menu_botones', '3':'imagen', '4':'url' };
+  const accionVal = accionMap[accion] || 'texto';
+  const respuesta = prompt(`Contenido de la respuesta (${accionVal}):`);
+  if (!respuesta) return;
+  if (!S.config.filtros[filtroIdx].reglas) S.config.filtros[filtroIdx].reglas = [];
+  S.config.filtros[filtroIdx].reglas.push({ trigger, accion: accionVal, respuesta });
+  saveLocal();
+  renderPredefinidos();
+}
+
+function eliminarRegla(filtroIdx, reglaIdx) {
+  S.config.filtros[filtroIdx].reglas.splice(reglaIdx, 1);
+  saveLocal();
+  renderPredefinidos();
+}
+
 function eliminarFiltro(i) {
   if (!confirm('¿Eliminar este filtro?')) return;
   S.config.filtros.splice(i, 1);

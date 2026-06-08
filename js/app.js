@@ -227,6 +227,7 @@ function mountApp() {
   }
 
   applyTheme();
+  restaurarAparienciaGuardada();
   switchTab('conversaciones');
   renderConvList();
   renderPendientes();
@@ -282,6 +283,80 @@ function resetearColores() {
   S.config.colores = {};
   saveLocal();
   showToast('Colores reseteados');
+}
+
+function resetearApariencia() {
+  document.documentElement.removeAttribute('style');
+  S.config.colores = {};
+  S.config.fuentes = {};
+  S.config.tamanios = {};
+  saveLocal();
+  showToast('Apariencia reseteada');
+}
+
+// ── FUENTES DINÁMICAS ──
+const GOOGLE_FONTS_URL = 'https://fonts.googleapis.com/css2?family=';
+const fontesCache = new Set(['Barlow', 'Barlow Condensed']);
+
+function cargarGoogleFont(familia) {
+  if (fontesCache.has(familia)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = GOOGLE_FONTS_URL + familia.replace(/ /g, '+') + ':wght@400;500;600;700;800&display=swap';
+  document.head.appendChild(link);
+  fontesCache.add(familia);
+}
+
+function aplicarFuente(zona, familia) {
+  cargarGoogleFont(familia);
+  const vars = {
+    general:  '--font',
+    mensajes: '--font-mensajes',
+    botones:  '--font-cond',
+    nodales:  '--font-nodales'
+  };
+  const cssVar = vars[zona];
+  if (cssVar) {
+    document.documentElement.style.setProperty(cssVar, `'${familia}', sans-serif`);
+    if (!S.config.fuentes) S.config.fuentes = {};
+    S.config.fuentes[zona] = familia;
+    saveLocal();
+  }
+}
+
+function aplicarTamanio(zona, valor) {
+  const labels = { general: 'size-general-val', mensajes: 'size-mensajes-val', botones: 'size-botones-val', nodales: 'size-nodales-val' };
+  const vars = { general: '--font-size-base', mensajes: '--font-size-msg', botones: '--font-size-btn', nodales: '--font-size-nodal' };
+  const el = document.getElementById(labels[zona]);
+  if (el) el.textContent = valor + 'px';
+  const cssVar = vars[zona];
+  if (cssVar) {
+    document.documentElement.style.setProperty(cssVar, valor + 'px');
+    if (!S.config.tamanios) S.config.tamanios = {};
+    S.config.tamanios[zona] = valor;
+    saveLocal();
+  }
+  // Aplicar directamente donde corresponde
+  if (zona === 'mensajes') {
+    document.querySelectorAll('.bubble').forEach(b => b.style.fontSize = valor + 'px');
+  } else if (zona === 'botones') {
+    document.querySelectorAll('.btn, .mini-btn, .bar-btn, .nav-tab').forEach(b => b.style.fontSize = valor + 'px');
+  } else if (zona === 'nodales') {
+    document.querySelectorAll('.nodal-name').forEach(n => n.style.fontSize = valor + 'px');
+  } else if (zona === 'general') {
+    document.body.style.fontSize = valor + 'px';
+  }
+}
+
+function restaurarAparienciaGuardada() {
+  // Colores
+  if (S.config.colores) Object.entries(S.config.colores).forEach(([k,v]) => {
+    document.documentElement.style.setProperty(`--${k}`, v);
+  });
+  // Fuentes
+  if (S.config.fuentes) Object.entries(S.config.fuentes).forEach(([zona, fam]) => aplicarFuente(zona, fam));
+  // Tamaños
+  if (S.config.tamanios) Object.entries(S.config.tamanios).forEach(([zona, val]) => aplicarTamanio(zona, val));
 }
 
 // ── MODO EDICIÓN ──

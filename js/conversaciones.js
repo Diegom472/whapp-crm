@@ -126,6 +126,10 @@ function renderTagsHeader(conv) {
 }
 
 // ── RENDER MENSAJES ──
+// ── ESTADO REENVÍO ──
+let modoReenvio = false;
+let msgsSeleccionados = new Set();
+
 function renderMensajes(phone) {
   const container = document.getElementById('chat-messages');
   if (!container) return;
@@ -146,21 +150,205 @@ function renderMensajes(phone) {
       lastDate = d;
     }
     const hora = new Date(m.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
-    const cls = m.dir === 'out' ? 'out' : 'in';
+    const cls  = m.dir === 'out' ? 'out' : 'in';
+    const selClass = modoReenvio && msgsSeleccionados.has(m.id) ? 'msg-selected' : '';
 
+    // Botones de acción al hover
+    const acciones = `
+      <div class="msg-actions">
+        <button class="msg-action-btn" onclick="responderMsg('${m.id}')" title="Responder"><i class="ti ti-corner-up-left" style="font-size:12px;"></i></button>
+        ${m.dir==='out' ? `<button class="msg-action-btn" onclick="editarMsg('${m.id}')" title="Editar"><i class="ti ti-pencil" style="font-size:12px;"></i></button>` : ''}
+        <button class="msg-action-btn" onclick="activarReenvio('${m.id}')" title="Reenviar"><i class="ti ti-share" style="font-size:12px;"></i></button>
+        <button class="msg-action-btn" onclick="copiarMsg('${m.id}')" title="Copiar"><i class="ti ti-copy" style="font-size:12px;"></i></button>
+        <button class="msg-action-btn del" onclick="eliminarMsg('${m.id}')" title="Eliminar"><i class="ti ti-trash" style="font-size:12px;"></i></button>
+      </div>`;
+
+    let contenido = '';
     if (m.tipo === 'texto') {
-      html += `<div class="msg-row ${cls}"><div class="bubble ${cls}">${escHtml(m.texto)}<div class="bubble-time">${hora}</div></div></div>`;
+      contenido = `${escHtml(m.editado ? m.texto + ' ✏️' : m.texto)}`;
     } else if (m.tipo === 'imagen') {
-      html += `<div class="msg-row ${cls}"><div class="bubble ${cls}"><img src="${m.url}" style="max-width:200px;border-radius:6px;display:block;margin-bottom:4px;" onerror="this.style.display='none'"><div class="bubble-time">${hora}</div></div></div>`;
+      contenido = `<img src="${m.url}" style="max-width:200px;border-radius:6px;display:block;margin-bottom:4px;" onerror="this.style.display='none'">`;
     } else if (m.tipo === 'audio') {
-      html += `<div class="msg-row ${cls}"><div class="bubble ${cls}"><audio controls src="${m.url}" style="max-width:200px;"></audio><div class="bubble-time">${hora}</div></div></div>`;
+      contenido = `<audio controls src="${m.url}" style="max-width:220px;"></audio>`;
     } else if (m.tipo === 'documento') {
-      html += `<div class="msg-row ${cls}"><div class="bubble ${cls}"><div style="display:flex;align-items:center;gap:7px;"><i class="ti ti-file" style="font-size:20px;"></i><div><div style="font-size:12px;">${escHtml(m.nombre||'Archivo')}</div><div style="font-size:10px;opacity:0.7;">${m.mimetype||''}</div></div></div><div class="bubble-time">${hora}</div></div></div>`;
+      contenido = `<div style="display:flex;align-items:center;gap:7px;"><i class="ti ti-file" style="font-size:20px;"></i><div><div style="font-size:12px;">${escHtml(m.nombre||'Archivo')}</div><div style="font-size:10px;opacity:0.7;">${m.mimetype||''}</div></div></div>`;
     }
+
+    // Respuesta citada
+    const citado = m.replyTo ? (() => {
+      const orig = (S.mensajesCache[phone]||[]).find(x => x.id === m.replyTo);
+      return orig ? `<div style="background:rgba(0,0,0,0.08);border-left:3px solid rgba(255,255,255,0.5);border-radius:4px;padding:4px 8px;margin-bottom:5px;font-size:11px;opacity:0.85;">${escHtml((orig.texto||'').slice(0,60))}</div>` : '';
+    })() : '';
+
+    const checkBox = modoReenvio ? `<input type="checkbox" class="msg-check" ${msgsSeleccionados.has(m.id)?'checked':''} onchange="toggleMsgSeleccion('${m.id}',this.checked)" style="margin-right:6px;accent-color:var(--accent);">` : '';
+
+    html += `<div class="msg-row ${cls} ${selClass}" id="msg-${m.id}" style="${modoReenvio?'cursor:pointer;':''}" ${modoReenvio?`onclick="toggleMsgSeleccion('${m.id}',!msgsSeleccionados.has('${m.id}'))"`:''}>
+      ${cls==='in' && modoReenvio ? checkBox : ''}
+      ${cls==='out' ? acciones : ''}
+      <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${hora}</div></div>
+      ${cls==='in' ? acciones : ''}
+      ${cls==='out' && modoReenvio ? checkBox : ''}
+    </div>`;
   });
 
   container.innerHTML = html;
   container.scrollTop = container.scrollHeight;
+}
+
+// ── ACCIONES SOBRE MENSAJES ──
+function editarMsg(id) {
+  const phone = S.convActiva?.phone;
+  if (!phone) return;
+  const msg = (S.mensajesCache[phone]||[]).find(m => m.id === id);
+  if (!msg || msg.tipo !== 'texto') return;
+  const nuevo = prompt('Editá el mensaje:', msg.texto);
+  if (nuevo === null || nuevo === msg.texto) return;
+  msg.texto  = nuevo;
+  msg.editado = true;
+  renderMensajes(phone);
+  showToast('Mensaje editado');
+}
+
+function eliminarMsg(id) {
+  const phone = S.convActiva?.phone;
+  if (!phone) return;
+  if (!confirm('¿Eliminar este mensaje?')) return;
+  S.mensajesCache[phone] = (S.mensajesCache[phone]||[]).filter(m => m.id !== id);
+  renderMensajes(phone);
+  showToast('Mensaje eliminado');
+}
+
+function copiarMsg(id) {
+  const phone = S.convActiva?.phone;
+  const msg = (S.mensajesCache[phone]||[]).find(m => m.id === id);
+  if (!msg) return;
+  navigator.clipboard.writeText(msg.texto||'').then(() => showToast('Copiado al portapapeles'));
+}
+
+function responderMsg(id) {
+  const phone = S.convActiva?.phone;
+  const msg = (S.mensajesCache[phone]||[]).find(m => m.id === id);
+  if (!msg) return;
+  const input = document.getElementById('msg-input');
+  if (input) {
+    input.dataset.replyTo = id;
+    input.placeholder = `↩ Respondiendo: "${(msg.texto||'[media]').slice(0,40)}"`;
+    input.focus();
+  }
+}
+
+// ── MODO REENVÍO ──
+function activarReenvio(idInicial) {
+  modoReenvio = true;
+  msgsSeleccionados = new Set([idInicial]);
+  renderMensajes(S.convActiva.phone);
+  // Cambiar input bar
+  const inputArea = document.getElementById('chat-input-area');
+  if (inputArea) inputArea.innerHTML = `
+    <div style="flex:1;font-size:13px;color:var(--text2);padding:8px 4px;">
+      <i class="ti ti-share" style="color:var(--blue);margin-right:6px;"></i>
+      <span id="reenvio-count">1</span> mensaje(s) seleccionado(s)
+    </div>
+    <button class="btn btn-blue btn-sm" onclick="abrirSelectorReenvio()"><i class="ti ti-send"></i> Reenviar</button>
+    <button class="btn btn-secondary btn-sm" onclick="cancelarReenvio()"><i class="ti ti-x"></i> Cancelar</button>`;
+}
+
+function toggleMsgSeleccion(id, checked) {
+  if (checked) msgsSeleccionados.add(id);
+  else msgsSeleccionados.delete(id);
+  const cnt = document.getElementById('reenvio-count');
+  if (cnt) cnt.textContent = msgsSeleccionados.size;
+  // Actualizar checkbox visual
+  const row = document.getElementById('msg-' + id);
+  if (row) {
+    const cb = row.querySelector('.msg-check');
+    if (cb) cb.checked = checked;
+    row.classList.toggle('msg-selected', checked);
+  }
+}
+
+function cancelarReenvio() {
+  modoReenvio = false;
+  msgsSeleccionados = new Set();
+  renderMensajes(S.convActiva.phone);
+  // Restaurar input bar
+  const inputArea = document.getElementById('chat-input-area');
+  if (inputArea) inputArea.innerHTML = `
+    <button class="chat-input-btn" title="Adjuntar archivo" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i></button>
+    <button class="chat-input-btn" title="Emoticones" id="btn-emoji" onclick="toggleEmojiPanel()"><i class="ti ti-mood-smile"></i></button>
+    <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="iniciarAudio()"><i class="ti ti-microphone"></i></button>
+    <button class="chat-input-btn" title="Enviar carrusel" onclick="abrirCarrusel()"><i class="ti ti-layout-grid"></i></button>
+    <textarea class="chat-input" id="msg-input" placeholder="Escribí un mensaje..." rows="1" onkeydown="handleMsgKeydown(event)" oninput="autoResizeInput(this)"></textarea>
+    <button class="send-btn" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>`;
+}
+
+function abrirSelectorReenvio() {
+  const modal = document.getElementById('modal-selector-reenvio');
+  if (!modal) return;
+  renderListaContactosReenvio('');
+  abrirModal('modal-selector-reenvio');
+}
+
+let contactosReenvioSeleccionados = new Set();
+
+function renderListaContactosReenvio(filtro) {
+  const lista = document.getElementById('reenvio-contactos-lista');
+  if (!lista) return;
+  const fl = filtro.toLowerCase();
+  const convs = S.conversaciones.filter(c =>
+    !filtro || (c.nombre||c.phone).toLowerCase().includes(fl)
+  );
+
+  // Contactos seleccionados primero
+  const seleccionados = [...contactosReenvioSeleccionados];
+  const noSel = convs.filter(c => !contactosReenvioSeleccionados.has(c.phone));
+
+  lista.innerHTML = [
+    ...convs.filter(c => contactosReenvioSeleccionados.has(c.phone)),
+    ...noSel
+  ].map(c => {
+    const sel = contactosReenvioSeleccionados.has(c.phone);
+    return `<div class="reenvio-contacto ${sel?'sel':''}" onclick="toggleContactoReenvio('${c.phone}')">
+      <div class="conv-avatar ${colorAvatar(c.phone)}" style="width:32px;height:32px;font-size:11px;flex-shrink:0;">${obtenerIniciales(c.nombre||c.phone)}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(c.nombre||c.phone)}</div>
+        <div style="font-size:11px;color:var(--text3);">${escHtml(c.phone)}</div>
+      </div>
+      ${sel ? '<i class="ti ti-check" style="color:var(--blue);font-size:16px;"></i>' : ''}
+    </div>`;
+  }).join('') || `<div style="text-align:center;padding:20px;color:var(--text3);">Sin resultados</div>`;
+}
+
+function toggleContactoReenvio(phone) {
+  if (contactosReenvioSeleccionados.has(phone)) contactosReenvioSeleccionados.delete(phone);
+  else contactosReenvioSeleccionados.add(phone);
+  renderListaContactosReenvio(document.getElementById('reenvio-buscar')?.value||'');
+  const cnt = document.getElementById('reenvio-dest-count');
+  if (cnt) cnt.textContent = contactosReenvioSeleccionados.size + ' destinatario(s)';
+}
+
+async function confirmarReenvio() {
+  if (!S.convActiva || !contactosReenvioSeleccionados.size || !msgsSeleccionados.size) return;
+  const phone = S.convActiva.phone;
+  const msgs  = (S.mensajesCache[phone]||[]).filter(m => msgsSeleccionados.has(m.id));
+
+  for (const dest of contactosReenvioSeleccionados) {
+    if (!S.mensajesCache[dest]) S.mensajesCache[dest] = [];
+    // Enviar en orden secuencial con espera entre archivos pesados
+    for (const msg of msgs) {
+      const copia = { ...msg, id: generarId('MSG'), dir: 'out', ts: Date.now(), reenviado: true };
+      S.mensajesCache[dest].push(copia);
+      // Esperar más entre archivos pesados para respetar el orden
+      const delay = (msg.tipo === 'texto') ? 100 : 800;
+      await new Promise(r => setTimeout(r, delay));
+      await enviarPorWhatsApp(dest, msg.tipo === 'texto' ? msg.texto : msg.url, msg.tipo === 'texto' ? 'text' : msg.tipo);
+    }
+  }
+
+  cerrarModal('modal-selector-reenvio');
+  cancelarReenvio();
+  contactosReenvioSeleccionados = new Set();
+  showToast(`Mensajes reenviados a ${contactosReenvioSeleccionados.size || 'los contactos seleccionados'}`);
 }
 
 // ── ENVIAR MENSAJE ──
@@ -279,7 +467,7 @@ async function subirArchivo(file) {
   showToast('Archivo enviado');
 }
 
-// ── GRABADOR DE AUDIO ──
+// ── GRABADOR DE AUDIO — flujo simplificado ──
 let mediaRecorder = null;
 let audioChunks   = [];
 let audioBlob     = null;
@@ -289,108 +477,78 @@ let recPaused     = false;
 
 function iniciarAudio() {
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-    audioChunks = [];
-    recSeconds  = 0;
-    recPaused   = false;
+    audioChunks = []; recSeconds = 0; recPaused = false;
     mediaRecorder = new MediaRecorder(stream);
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
       audioBlob = new Blob(audioChunks, { type: 'audio/ogg; codecs=opus' });
-      mostrarPreviewAudio(audioBlob);
+      // Mostrar directamente barra pausado con player
+      const url = URL.createObjectURL(audioBlob);
+      const player = document.getElementById('audio-paused-player');
+      if (player) { player.src = url; player.load(); }
+      document.getElementById('audio-recording-bar').classList.remove('active');
+      document.getElementById('audio-paused-bar').classList.add('active');
     };
     mediaRecorder.start(100);
-
-    // Mostrar barra de grabación
     document.getElementById('audio-recording-bar').classList.add('active');
-    document.getElementById('chat-input-area') && (document.querySelector('.chat-input-area').style.display = 'none');
+    document.getElementById('audio-paused-bar').classList.remove('active');
 
-    // Timer
     recTimer = setInterval(() => {
       if (!recPaused) {
         recSeconds++;
-        const m = Math.floor(recSeconds/60);
-        const s = recSeconds % 60;
+        const m = Math.floor(recSeconds/60), s = recSeconds%60;
         const el = document.getElementById('audio-rec-time');
         if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
       }
     }, 1000);
 
-    document.getElementById('btn-audio').classList.add('recording');
+    document.getElementById('btn-audio')?.classList.add('recording');
   }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
 }
 
 function pausarAudio() {
-  if (!mediaRecorder) return;
-  const btn = document.getElementById('btn-pause-audio');
-  if (recPaused) {
-    mediaRecorder.resume();
-    recPaused = false;
-    btn.innerHTML = '<i class="ti ti-player-pause"></i>';
-    btn.style.color = 'var(--amber)';
-  } else {
-    mediaRecorder.pause();
-    recPaused = true;
-    btn.innerHTML = '<i class="ti ti-player-play"></i>';
-    btn.style.color = 'var(--green)';
-  }
-}
-
-function detenerYPrevisualizar() {
-  if (!mediaRecorder) return;
+  // Al tocar pausa: detener grabación → mostrar player inmediatamente
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
   clearInterval(recTimer);
   mediaRecorder.stop();
-  document.getElementById('audio-recording-bar').classList.remove('active');
-  document.getElementById('btn-audio').classList.remove('recording');
+  document.getElementById('btn-audio')?.classList.remove('recording');
+  // El onstop se encarga de mostrar audio-paused-bar
 }
 
-function cancelarAudio() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-  clearInterval(recTimer);
-  audioChunks = [];
-  audioBlob   = null;
-  document.getElementById('audio-recording-bar').classList.remove('active');
-  document.getElementById('audio-preview-bar').classList.remove('active');
-  document.querySelector('.chat-input-area').style.display = '';
-  document.getElementById('btn-audio').classList.remove('recording');
-  recSeconds = 0;
-}
-
-function mostrarPreviewAudio(blob) {
-  const url = URL.createObjectURL(blob);
-  const player = document.getElementById('audio-preview-player');
-  player.src = url;
-  document.getElementById('audio-preview-bar').classList.add('active');
-}
-
-function confirmarEnvioAudio() {
+function enviarAudioPausado() {
   if (!audioBlob || !S.convActiva) return;
   const url = URL.createObjectURL(audioBlob);
-  const file = new File([audioBlob], `audio_${Date.now()}.ogg`, { type: audioBlob.type });
   const msg = {
-    id:   generarId('MSG'),
-    tipo: 'audio',
-    url:  url,
-    nombre: file.name,
-    dir:  'out',
-    ts:   Date.now(),
-    operador: S.usuario?.nombre
+    id:   generarId('MSG'), tipo: 'audio', url,
+    nombre: `audio_${Date.now()}.ogg`, dir: 'out',
+    ts: Date.now(), operador: S.usuario?.nombre
   };
   if (!S.mensajesCache[S.convActiva.phone]) S.mensajesCache[S.convActiva.phone] = [];
   S.mensajesCache[S.convActiva.phone].push(msg);
   renderMensajes(S.convActiva.phone);
-  cancelarPreviewAudio();
+  cancelarAudio();
   showToast('Audio enviado');
 }
 
-function cancelarPreviewAudio() {
-  audioBlob = null;
-  document.getElementById('audio-preview-bar').classList.remove('active');
-  document.querySelector('.chat-input-area').style.display = '';
+function cancelarAudio() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  clearInterval(recTimer);
+  audioChunks = []; audioBlob = null; recSeconds = 0;
+  document.getElementById('audio-recording-bar').classList.remove('active');
+  document.getElementById('audio-paused-bar').classList.remove('active');
+  document.getElementById('btn-audio')?.classList.remove('recording');
+  const player = document.getElementById('audio-paused-player');
+  if (player) { player.pause(); player.src = ''; }
 }
 
-// Mantener toggleAudio como alias por compatibilidad
 function toggleAudio() { iniciarAudio(); }
+// confirmarEnvioAudio → alias
+function confirmarEnvioAudio() { enviarAudioPausado(); }
+function cancelarPreviewAudio() { cancelarAudio(); }
+function detenerYPrevisualizar() { pausarAudio(); }
 
 // ── BUSCAR EN CHAT ──
 function buscarEnChat() {
