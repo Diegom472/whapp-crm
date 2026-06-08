@@ -552,21 +552,26 @@ function buildFiltrosUI() {
 }
 
 function buildFiltroCard(f, i) {
+  const pasoCount = f.ramas ? Object.keys(f.ramas).length : (f.pasos||[]).length;
   return `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:16px;margin-bottom:10px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
       <div style="font-family:var(--font-cond);font-weight:700;font-size:15px;">${escHtml(f.nombre||'Filtro sin nombre')}</div>
       <div style="display:flex;gap:5px;">
         <span style="font-size:10px;padding:2px 7px;border-radius:4px;${f.activo ? 'background:var(--green-dim);color:var(--green)' : 'background:var(--bg3);color:var(--text3)'}">${f.activo ? 'Activo' : 'Inactivo'}</span>
-        <button class="btn btn-secondary btn-xs" onclick="editarFiltro(${i})"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-secondary btn-xs" onclick="toggleFiltroActivo(${i})">${f.activo ? 'Desactivar' : 'Activar'}</button>
         <button class="btn btn-secondary btn-xs" onclick="eliminarFiltro(${i})"><i class="ti ti-trash"></i></button>
       </div>
     </div>
-    <div style="font-size:12px;color:var(--text2);">
+    <div style="font-size:12px;color:var(--text2);line-height:1.7;">
       <strong>Palabras clave:</strong> ${escHtml((f.palabrasClave||[]).join(', ') || '—')}<br>
-      <strong>Campañas Meta:</strong> ${escHtml((f.campanas||[]).join(', ') || '—')}<br>
-      <strong>Pasos:</strong> ${(f.pasos||[]).length} mensaje(s)
+      <strong>Bloquea hasta completar:</strong> ${f.bloquearHastaCompletar ? 'Sí' : 'No'}<br>
+      <strong>Pasos / ramas:</strong> ${pasoCount}<br>
+      ${f.ramas ? `<strong>Flujo:</strong> Inicio → Gamer / Profesional / Otras → Periféricos → Cuándo → Componentes → Cierre` : ''}
     </div>
+    ${f.ramas ? `<div style="margin-top:10px;background:var(--bg3);border-radius:var(--radius);padding:10px;font-size:11px;color:var(--text3);">
+      💡 Este filtro replica el flujo de <strong>filtro.pages.dev</strong> con todas sus ramas. Se activa automáticamente cuando el cliente escribe una de las palabras clave.
+    </div>` : ''}
   </div>`;
 }
 
@@ -595,25 +600,159 @@ function crearNuevoFiltro() {
 function inicializarFiltroDefault() {
   if (!S.config.filtros) S.config.filtros = [];
   if (S.config.filtros.find(f => f.id === 'F_CASATECNO_DEFAULT')) return;
+
   S.config.filtros.unshift({
     id: 'F_CASATECNO_DEFAULT',
-    nombre: 'Filtro Casa Tecno — Asesoramiento PC',
-    palabrasClave: ['hola','precio','pc','computadora','presupuesto','gamer','notebook','consulta'],
+    nombre: 'Asesoramiento Casa Tecno — Filtro principal',
+    palabrasClave: ['hola','precio','pc','computadora','presupuesto','gamer','notebook','consulta','queria','buenas','info','cuanto'],
     campanas: [],
     activo: true,
     bloquearHastaCompletar: true,
-    pasos: [
-      { orden: 1, msj: '¡Hola! 👋 Bienvenido/a a *Casa Tecno*. Para asesorarte mejor necesito hacerte unas preguntas rápidas.\n\n¿Para qué vas a usar la PC principalmente?\n\n1️⃣ Gaming\n2️⃣ Trabajo / Profesional\n3️⃣ Diseño / Arquitectura / Video\n4️⃣ Uso general / Oficina\n5️⃣ Solo estoy viendo precios', esperar: true, tipo: 'opcion' },
-      { orden: 2, msj: '¿Cuál es tu presupuesto aproximado en pesos argentinos?\n\n1️⃣ Hasta $800.000\n2️⃣ $800.000 — $1.200.000\n3️⃣ $1.200.000 — $1.800.000\n4️⃣ $1.800.000 — $2.500.000\n5️⃣ Más de $2.500.000', esperar: true, tipo: 'opcion' },
-      { orden: 3, msj: '¿Tenés alguna preferencia de procesador?\n\n1️⃣ AMD Ryzen (mejor precio/rendimiento)\n2️⃣ Intel Core (compatibilidad garantizada)\n3️⃣ Sin preferencia / Lo que recomienden', esperar: true, tipo: 'opcion' },
-      { orden: 4, msj: '¿Necesitás monitor, teclado o mouse incluidos en el presupuesto?\n\n1️⃣ Solo la PC\n2️⃣ PC + Monitor\n3️⃣ PC + Periféricos completos\n4️⃣ Solo periféricos', esperar: true, tipo: 'opcion' },
-      { orden: 5, msj: '¡Perfecto! 🎯 Ya tengo toda la info que necesito. En breve un asesor de Casa Tecno te va a responder con las mejores opciones para vos. ¡Gracias por tu paciencia! ⚡', esperar: false, tipo: 'cierre' }
-    ]
+    waNumero: '543516842809',
+    pixelId: '1331124815328957',
+    leadValues: {
+      'Gama Entrada USD 500-600': 550,
+      'Gama Media USD 700-1.000': 850,
+      'Gama Alta USD 1.200-2.300': 1750,
+      'Gama Tope USD 2.500-4.000': 3250,
+      'Gama Premium USD 4.300-10.000': 7150,
+      'Arquitectura Básica USD 600-1.000': 800,
+      'Arquitectura Media USD 1.200-2.000': 1600,
+      'Arquitectura Avanzada USD 3.000-8.000': 5500,
+      'Edición Liviana USD 600-1.000': 800,
+      'Edición Intermedia USD 1.100-2.000': 1550,
+      'Edición Avanzada USD 3.300-8.000': 5650,
+      'Programación Inicial-Intermedia USD 600-900': 750,
+      'Programación Experta USD 1.000-1.700': 1350,
+      'Diseño Base USD 600-1.000': 800,
+      'Diseño Intermedio USD 1.100-2.000': 1550,
+      'Diseño Avanzado USD 2.200-4.000': 3100,
+      'Animación Base USD 900-1.500': 1200,
+      'Animación Intermedia USD 1.600-2.000': 1800,
+      'Animación Avanzada USD 2.500-3.500': 3000,
+      'Animación Experta USD 4.000-8.000': 6000,
+      'Hogar / Familia': 400, 'Estudio / Tareas': 350, 'Oficina básica': 450
+    },
+    noCalifica: ['Gama Entrada USD 500-600','Solo estoy viendo','PC Otras'],
+    ramas: {
+      inicio: {
+        msj: '¡Hola! 👋 Bienvenido/a a *Casa Tecno*. Para asesorarte mejor necesito hacerte unas preguntas.\n\n¿Qué tipo de PC buscás?\n\n1️⃣ PC Gamer\n2️⃣ PC Profesional\n3️⃣ PC Otras (hogar, estudio, oficina)',
+        opciones: [
+          { valor: '1', texto: 'PC Gamer', siguente: 'gamer_rango' },
+          { valor: '2', texto: 'PC Profesional', siguente: 'prof_area' },
+          { valor: '3', texto: 'PC Otras', siguente: 'otras_uso' }
+        ]
+      },
+      gamer_rango: {
+        msj: '🎮 *Gamer* — ¿Qué rango de potencia buscás?\n\n1️⃣ Gama Entrada · U$D 500-600 · Juegos livianos\n2️⃣ Gama Media · U$D 700-1.000 · AAA Medios\n3️⃣ Gama Alta · U$D 1.200-2.300 · AAA Altos\n4️⃣ Gama Tope · U$D 2.500-4.000 · AAA Máximos\n5️⃣ Gama Premium · U$D 4.300-10.000 · Ultra',
+        opciones: [
+          { valor: '1', texto: 'Gama Entrada USD 500-600', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Gama Media USD 700-1.000', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Gama Alta USD 1.200-2.300', siguente: 'comun_perifericos' },
+          { valor: '4', texto: 'Gama Tope USD 2.500-4.000', siguente: 'comun_perifericos' },
+          { valor: '5', texto: 'Gama Premium USD 4.300-10.000', siguente: 'comun_perifericos' }
+        ]
+      },
+      prof_area: {
+        msj: '💼 *Profesional* — ¿Cuál es tu área de trabajo?\n\n1️⃣ Arquitectura\n2️⃣ Programación\n3️⃣ Edición de Video\n4️⃣ Diseño Gráfico\n5️⃣ Animación y Videojuegos\n6️⃣ Otras',
+        opciones: [
+          { valor: '1', texto: 'Arquitectura', siguente: 'prof_arquitectura' },
+          { valor: '2', texto: 'Programación', siguente: 'prof_programacion' },
+          { valor: '3', texto: 'Edición de Video', siguente: 'prof_video' },
+          { valor: '4', texto: 'Diseño Gráfico', siguente: 'prof_diseno' },
+          { valor: '5', texto: 'Animación y Videojuegos', siguente: 'prof_animacion' },
+          { valor: '6', texto: 'Otras', siguente: 'comun_perifericos' }
+        ]
+      },
+      prof_arquitectura: {
+        msj: '🏛️ *Arquitectura* — ¿Qué nivel de trabajo?\n\n1️⃣ Básica · U$D 600-1.000 · AutoCAD, SketchUp\n2️⃣ Media · U$D 1.200-2.000 · Lumion, D5 Render\n3️⃣ Avanzada · U$D 3.000-8.000 · Unreal Engine',
+        opciones: [
+          { valor: '1', texto: 'Arquitectura Básica USD 600-1.000', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Arquitectura Media USD 1.200-2.000', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Arquitectura Avanzada USD 3.000-8.000', siguente: 'comun_perifericos' }
+        ]
+      },
+      prof_programacion: {
+        msj: '💻 *Programación* — ¿Qué nivel?\n\n1️⃣ Inicial/Intermedia · U$D 600-900\n2️⃣ Experto · U$D 1.000-1.700\n3️⃣ Programación + Gaming',
+        opciones: [
+          { valor: '1', texto: 'Programación Inicial-Intermedia USD 600-900', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Programación Experta USD 1.000-1.700', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Programación + Juegos', siguente: 'gamer_rango' }
+        ]
+      },
+      prof_video: {
+        msj: '🎬 *Edición de Video* — ¿Qué categoría?\n\n1️⃣ Liviano FHD · U$D 600-1.000\n2️⃣ Intermedio FHD+4K · U$D 1.100-2.000\n3️⃣ Avanzado 4K+8K · U$D 3.300-8.000',
+        opciones: [
+          { valor: '1', texto: 'Edición Liviana USD 600-1.000', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Edición Intermedia USD 1.100-2.000', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Edición Avanzada USD 3.300-8.000', siguente: 'comun_perifericos' }
+        ]
+      },
+      prof_diseno: {
+        msj: '🎨 *Diseño Gráfico* — ¿Qué tipo de diseños?\n\n1️⃣ Base · U$D 600-1.000 · Illustrator, Photoshop\n2️⃣ Intermedio · U$D 1.100-2.000 · 3D y animaciones\n3️⃣ Avanzado · U$D 2.200-4.000 · Videojuegos',
+        opciones: [
+          { valor: '1', texto: 'Diseño Base USD 600-1.000', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Diseño Intermedio USD 1.100-2.000', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Diseño Avanzado USD 2.200-4.000', siguente: 'comun_perifericos' }
+        ]
+      },
+      prof_animacion: {
+        msj: '🎭 *Animación y Videojuegos* — ¿Qué potencia?\n\n1️⃣ Base · U$D 900-1.500\n2️⃣ Intermedio · U$D 1.600-2.000\n3️⃣ Avanzado · U$D 2.500-3.500\n4️⃣ Experto · U$D 4.000-8.000',
+        opciones: [
+          { valor: '1', texto: 'Animación Base USD 900-1.500', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Animación Intermedia USD 1.600-2.000', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Animación Avanzada USD 2.500-3.500', siguente: 'comun_perifericos' },
+          { valor: '4', texto: 'Animación Experta USD 4.000-8.000', siguente: 'comun_perifericos' }
+        ]
+      },
+      otras_uso: {
+        msj: '🏠 *PC Otras* — ¿Para qué la usarías?\n\n1️⃣ Hogar / Familia · Streaming, redes\n2️⃣ Estudio / Tareas · Para estudiantes\n3️⃣ Oficina básica · Word, Excel, Zoom',
+        opciones: [
+          { valor: '1', texto: 'Hogar / Familia', siguente: 'comun_perifericos' },
+          { valor: '2', texto: 'Estudio / Tareas', siguente: 'comun_perifericos' },
+          { valor: '3', texto: 'Oficina básica', siguente: 'comun_perifericos' }
+        ]
+      },
+      comun_perifericos: {
+        msj: '🖥️ ¿Necesitás monitor, teclado, mouse o auriculares?\n\n1️⃣ Sí, Monitor y Periféricos completos\n2️⃣ Solo Monitor\n3️⃣ No, ya tengo todo',
+        opciones: [
+          { valor: '1', texto: 'Monitor y Periféricos', siguente: 'comun_cuando' },
+          { valor: '2', texto: 'Solo Monitor', siguente: 'comun_cuando' },
+          { valor: '3', texto: 'No necesito monitor ni periféricos', siguente: 'comun_cuando' }
+        ]
+      },
+      comun_cuando: {
+        msj: '⏰ ¿Cuándo pensás hacer tu compra?\n\n1️⃣ Próximas 24 a 48hs ⚡\n2️⃣ En 7 a 14 días\n3️⃣ En los próximos 30 días\n4️⃣ Solo estoy viendo 👀',
+        opciones: [
+          { valor: '1', texto: 'Próximas 24 a 48hs', siguente: 'comun_componentes' },
+          { valor: '2', texto: '7 a 14 días', siguente: 'comun_componentes' },
+          { valor: '3', texto: 'Próximos 30 días', siguente: 'comun_componentes' },
+          { valor: '4', texto: 'Solo estoy viendo', siguente: 'comun_componentes' }
+        ]
+      },
+      comun_componentes: {
+        msj: '🔧 ¿Tenés algún componente en mente? (Podés escribir libremente o decir "ninguno")',
+        opciones: [], libre: true, siguente: 'comun_comentarios'
+      },
+      comun_comentarios: {
+        msj: '💬 ¿Querés comentarnos algo más para tu nueva PC? (Cualquier detalle o "listo")',
+        opciones: [], libre: true, siguente: 'fin'
+      },
+      fin: {
+        msj: '¡Perfecto! 🎯 Ya tengo toda la información. En breve un asesor de *Casa Tecno* te responde con las mejores opciones para vos. ¡Gracias por tu paciencia! ⚡',
+        opciones: [], fin: true
+      }
+    }
   });
   saveLocal();
 }
 
-function editarFiltro(i) { showToast('Editor de pasos del filtro (próxima versión)', 'warn'); }
+function toggleFiltroActivo(i) {
+  S.config.filtros[i].activo = !S.config.filtros[i].activo;
+  saveLocal();
+  renderPredefinidos();
+}
+function editarFiltro(i) { showToast('Editor visual de pasos (próxima versión)', 'warn'); }
 function eliminarFiltro(i) {
   if (!confirm('¿Eliminar este filtro?')) return;
   S.config.filtros.splice(i, 1);

@@ -345,13 +345,28 @@ function showToast(msg, tipo) {
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-// ── COLAPSABLES ──
+// ── COLAPSABLES — solo uno abierto a la vez ──
+const COLLAPSE_IDS = ['busqueda','cliente','compras','programados','recordatorios','archivos'];
+
 function toggleCollapse(id) {
   const body  = document.getElementById('body-' + id);
   const arrow = document.getElementById('arrow-' + id);
   if (!body) return;
-  const isOpen = body.classList.toggle('open');
-  if (arrow) arrow.classList.toggle('open', isOpen);
+  const yaEstabaAbierto = body.classList.contains('open');
+
+  // Cerrar todos
+  COLLAPSE_IDS.forEach(cid => {
+    const b = document.getElementById('body-' + cid);
+    const a = document.getElementById('arrow-' + cid);
+    if (b) b.classList.remove('open');
+    if (a) a.classList.remove('open');
+  });
+
+  // Si no estaba abierto, abrirlo
+  if (!yaEstabaAbierto) {
+    body.classList.add('open');
+    if (arrow) arrow.classList.add('open');
+  }
 }
 
 function toggleAdminCard(id) {
@@ -365,15 +380,19 @@ function toggleAdminCard(id) {
 // ── PANEL COLAPSAR ──
 function togglePanel(panel) {
   if (panel === 'info') {
-    const el = document.getElementById('right-info');
+    const el  = document.getElementById('right-info');
     const btn = document.getElementById('btn-toggle-info');
     const collapsed = el.classList.toggle('collapsed');
-    btn.innerHTML = collapsed ? '<i class="ti ti-chevron-left"></i>' : '<i class="ti ti-chevron-right"></i>';
+    btn.innerHTML = collapsed
+      ? '<i class="ti ti-chevron-left"></i>'
+      : '<i class="ti ti-chevron-right"></i>';
   } else if (panel === 'pend') {
-    const el = document.getElementById('pendientes-col');
+    const el  = document.getElementById('pendientes-col');
     const btn = document.getElementById('btn-toggle-pend');
     const collapsed = el.classList.toggle('collapsed');
-    btn.innerHTML = collapsed ? '<i class="ti ti-chevron-left"></i>' : '<i class="ti ti-chevron-right"></i>';
+    btn.innerHTML = collapsed
+      ? '<i class="ti ti-chevron-left"></i>'
+      : '<i class="ti ti-chevron-right"></i>';
   }
 }
 
@@ -555,15 +574,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!S.conversaciones.length) {
     S.conversaciones = [
       {
-        phone: '+5493516842001',
+        phone: '+5493516100001',
         nombre: 'Matías Romero',
-        lastMsg: 'Hola, quería consultar por una PC gamer',
-        lastTs: Date.now() - 1000 * 60 * 5,
+        lastMsg: 'FPS principalmente, Valorant y CS2',
+        lastTs: Date.now() - 1000 * 60 * 4,
         unread: 2,
-        operador: 'Diego G.'
+        operador: 'Diego G.',
+        ctwaClid: 'DEMO_CTWA_001'
       },
       {
-        phone: '+5493516842002',
+        phone: '+5493516100002',
         nombre: 'Juan García',
         lastMsg: 'Perfecto, ya transfiero el 50%',
         lastTs: Date.now() - 1000 * 60 * 40,
@@ -571,7 +591,7 @@ document.addEventListener('DOMContentLoaded', () => {
         operador: 'Diego G.'
       },
       {
-        phone: '+5493516842003',
+        phone: '+5493516100003',
         nombre: 'Carla López',
         lastMsg: '¿El Ryzen 7 tiene garantía oficial?',
         lastTs: Date.now() - 1000 * 60 * 120,
@@ -579,24 +599,44 @@ document.addEventListener('DOMContentLoaded', () => {
         operador: 'Diego G.'
       }
     ];
-    S.mensajesCache['+5493516842001'] = [
-      { id:'m1', tipo:'texto', texto:'Hola! Quería consultar por una PC gamer, presupuesto hasta $1.500.000', dir:'in', ts: Date.now() - 1000*60*8 },
-      { id:'m2', tipo:'texto', texto:'¡Hola Matías! Buenas tardes, soy Diego de Casa Tecno. Con ese presupuesto tenemos excelentes opciones 🎮', dir:'out', ts: Date.now() - 1000*60*7 },
-      { id:'m3', tipo:'texto', texto:'¿Qué opciones me recomendás? ¿Ryzen o Intel?', dir:'in', ts: Date.now() - 1000*60*6 },
-      { id:'m4', tipo:'texto', texto:'Para tu presupuesto el Ryzen 7 con RTX 4060 es la mejor relación precio/rendimiento. ¿Qué juegos jugás principalmente?', dir:'out', ts: Date.now() - 1000*60*5 },
-      { id:'m5', tipo:'texto', texto:'FPS principalmente, Valorant y CS2. También algo de edición de video', dir:'in', ts: Date.now() - 1000*60*4 }
+    S.mensajesCache['+5493516100001'] = [
+      { id:'m1', tipo:'texto', texto:'Hola! Vi el anuncio de Instagram y quería consultar por una PC gamer 🎮', dir:'in', ts: Date.now()-1000*60*10 },
+      { id:'m2', tipo:'texto', texto:'¡Hola Matías! Buenas tardes, soy Diego de Casa Tecno. Un placer atenderte. ¿Para qué juegos la necesitás principalmente?', dir:'out', ts: Date.now()-1000*60*9 },
+      { id:'m3', tipo:'texto', texto:'Quería algo para Valorant, CS2 y de vez en cuando edición de video', dir:'in', ts: Date.now()-1000*60*8 },
+      { id:'m4', tipo:'texto', texto:'Perfecto. ¿Tenés algún presupuesto en mente?', dir:'out', ts: Date.now()-1000*60*7 },
+      { id:'m5', tipo:'texto', texto:'Hasta $1.500.000 aproximadamente. ¿Qué me recomendás?', dir:'in', ts: Date.now()-1000*60*6 },
+      { id:'m6', tipo:'texto', texto:'Con ese presupuesto te armo una Ryzen 7 7700X + RTX 4060 Ti que te va a mover todo a Full HD con gráficos ultra 🔥', dir:'out', ts: Date.now()-1000*60*5 },
+      { id:'m7', tipo:'texto', texto:'FPS principalmente, Valorant y CS2. También algo de edición de video', dir:'in', ts: Date.now()-1000*60*4 }
     ];
-    S.mensajesCache['+5493516842002'] = [
-      { id:'m6', tipo:'texto', texto:'Buenas! Me interesa la RTX 4070 que vi en Instagram', dir:'in', ts: Date.now() - 1000*60*90 },
-      { id:'m7', tipo:'texto', texto:'Hola Juan! Sí, la tenemos disponible. ¿Querés que te arme un presupuesto completo?', dir:'out', ts: Date.now() - 1000*60*85 },
-      { id:'m8', tipo:'texto', texto:'Sí perfecto, con R7 7700X y 32GB RAM', dir:'in', ts: Date.now() - 1000*60*80 },
-      { id:'m9', tipo:'texto', texto:'Perfecto, ya transfiero el 50%', dir:'in', ts: Date.now() - 1000*60*40 }
+    S.mensajesCache['+5493516100002'] = [
+      { id:'m8',  tipo:'texto', texto:'Buenas! Me interesa la RTX 4070 que vi en el feed', dir:'in', ts: Date.now()-1000*60*90 },
+      { id:'m9',  tipo:'texto', texto:'¡Hola Juan! Sí la tenemos. ¿Querés que te arme un presupuesto completo con gabinete y todo?', dir:'out', ts: Date.now()-1000*60*85 },
+      { id:'m10', tipo:'texto', texto:'Sí, con Ryzen 7 y 32GB RAM', dir:'in', ts: Date.now()-1000*60*80 },
+      { id:'m11', tipo:'texto', texto:'Perfecto, ya te mando el detalle al WhatsApp', dir:'out', ts: Date.now()-1000*60*45 },
+      { id:'m12', tipo:'texto', texto:'Perfecto, ya transfiero el 50%', dir:'in', ts: Date.now()-1000*60*40 }
     ];
-    S.mensajesCache['+5493516842003'] = [
-      { id:'m10', tipo:'texto', texto:'Hola buenas tardes! Estoy buscando una PC para arquitectura y diseño 3D', dir:'in', ts: Date.now() - 1000*60*130 },
-      { id:'m11', tipo:'texto', texto:'Hola Carla! Para arquitectura y 3D te recomiendo algo con Ryzen 9 o i9 con mucha RAM. ¿Cuál es tu presupuesto?', dir:'out', ts: Date.now() - 1000*60*125 },
-      { id:'m12', tipo:'texto', texto:'¿El Ryzen 7 tiene garantía oficial?', dir:'in', ts: Date.now() - 1000*60*120 }
+    S.mensajesCache['+5493516100003'] = [
+      { id:'m13', tipo:'texto', texto:'Hola buenas! Busco una PC para arquitectura y renders en Lumion', dir:'in', ts: Date.now()-1000*60*130 },
+      { id:'m14', tipo:'texto', texto:'Hola Carla! Para renders en Lumion necesitás una GPU potente. ¿Cuál es tu presupuesto?', dir:'out', ts: Date.now()-1000*60*125 },
+      { id:'m15', tipo:'texto', texto:'Entre $1.500.000 y $2.000.000', dir:'in', ts: Date.now()-1000*60*122 },
+      { id:'m16', tipo:'texto', texto:'¿El Ryzen 7 tiene garantía oficial?', dir:'in', ts: Date.now()-1000*60*120 }
     ];
+    // Búsqueda activa de Matías
+    S.busquedas.push({
+      id: 'B_DEMO_001',
+      phone: '+5493516100001',
+      operador: 'admin',
+      palabras: 'FPS, Valorant, CS2, edición video',
+      tipo: 'GAMER ALTA',
+      rango: '$1.000.000–$1.500.000',
+      prop1: 'R7 7700X + RTX 4060 Ti',
+      prop2: 'R5 7600X + RTX 4060',
+      prop3: '',
+      fecha: fechaHoy(),
+      createdAt: Date.now() - 1000*60*8,
+      guardada: true,
+      terminada: false
+    });
   }
 
   applyTheme();
