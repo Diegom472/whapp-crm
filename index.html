@@ -116,9 +116,49 @@
           <!-- Mensajes se renderizan dinámicamente -->
         </div>
 
-        <div class="chat-input-area">
+        <!-- Barra de grabación -->
+        <div class="audio-recording-bar" id="audio-recording-bar">
+          <div class="audio-rec-dot"></div>
+          <span class="audio-rec-time" id="audio-rec-time">0:00</span>
+          <div class="audio-waveform" id="audio-waveform">
+            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+            <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
+          </div>
+          <button class="chat-input-btn" title="Pausar" id="btn-pause-audio" onclick="pausarAudio()" style="color:var(--amber)"><i class="ti ti-player-pause"></i></button>
+          <button class="chat-input-btn" title="Cancelar" onclick="cancelarAudio()" style="color:var(--accent)"><i class="ti ti-x"></i></button>
+          <button class="send-btn" title="Enviar audio" onclick="detenerYPrevisualizar()" style="background:var(--green)"><i class="ti ti-check"></i></button>
+        </div>
+
+        <!-- Preview de audio antes de enviar -->
+        <div class="audio-preview-bar" id="audio-preview-bar">
+          <span style="font-size:12px;font-weight:600;color:var(--text2);">Vista previa:</span>
+          <audio id="audio-preview-player" controls style="flex:1;height:32px;"></audio>
+          <button class="btn btn-success btn-sm" onclick="confirmarEnvioAudio()"><i class="ti ti-send"></i> Enviar</button>
+          <button class="btn btn-secondary btn-sm" onclick="cancelarPreviewAudio()"><i class="ti ti-trash"></i></button>
+        </div>
+
+        <!-- Panel emoticones -->
+        <div class="emoji-panel" id="emoji-panel">
+          <input class="emoji-search" id="emoji-search" type="text" placeholder="Buscar emoji..." oninput="filtrarEmojis(this.value)">
+          <div class="emoji-grid" id="emoji-grid"></div>
+        </div>
+
+        <!-- Panel etiquetas -->
+        <div class="etiquetas-panel" id="etiquetas-panel" style="position:absolute;top:50px;right:10px;">
+          <div style="font-family:var(--font-cond);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;color:var(--text2);">Etiquetas</div>
+          <div id="etiquetas-chips"></div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <input class="field-input" id="nueva-etiqueta-input" type="text" placeholder="Nueva etiqueta..." style="flex:1;font-size:11px;">
+            <button class="mini-btn primary" onclick="agregarEtiqueta()">+</button>
+          </div>
+        </div>
+
+        <div class="chat-input-area" style="position:relative;">
           <button class="chat-input-btn" title="Adjuntar archivo" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i></button>
-          <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="toggleAudio()"><i class="ti ti-microphone"></i></button>
+          <button class="chat-input-btn" title="Emoticones" id="btn-emoji" onclick="toggleEmojiPanel()"><i class="ti ti-mood-smile"></i></button>
+          <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="iniciarAudio()"><i class="ti ti-microphone"></i></button>
           <button class="chat-input-btn" title="Enviar carrusel" onclick="abrirCarrusel()"><i class="ti ti-layout-grid"></i></button>
           <textarea class="chat-input" id="msg-input" placeholder="Escribí un mensaje..." rows="1" onkeydown="handleMsgKeydown(event)" oninput="autoResizeInput(this)"></textarea>
           <button class="send-btn" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>
@@ -178,12 +218,15 @@
                     <label class="field-label">GAMER / Profesional / otros</label>
                     <select class="field-select" id="b-tipo" onchange="autosaveBusqueda()">
                       <option value="">— Seleccionar —</option>
-                      <option>GAMER ALTA</option>
+                      <option>GAMER BAJA</option>
                       <option>GAMER MEDIA</option>
-                      <option>GAMER ENTRADA</option>
+                      <option>GAMER ALTA</option>
+                      <option>GAMER TOPE</option>
+                      <option>GAMER PREMIUM</option>
                       <option>PROFESIONAL</option>
                       <option>ARQUITECTURA</option>
                       <option>EDICIÓN VIDEO</option>
+                      <option>PROGRAMACIÓN</option>
                       <option>OTROS</option>
                     </select>
                   </div>
@@ -789,6 +832,7 @@
     <div class="btn-row">
       <button class="btn btn-primary" onclick="guardarTarea()"><i class="ti ti-check"></i> Crear</button>
       <button class="btn btn-secondary" onclick="actualizarTarea()"><i class="ti ti-refresh"></i> Actualizar</button>
+      <button class="btn btn-success" id="btn-finalizar-tarea" onclick="finalizarTareaDesdeModal()" style="display:none;"><i class="ti ti-check-all"></i> Finalizar tarea</button>
       <button class="btn btn-secondary" onclick="cerrarModal('modal-tarea')">Cancelar</button>
     </div>
   </div>
