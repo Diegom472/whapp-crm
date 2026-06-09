@@ -874,6 +874,14 @@
                 <span id="size-panel-val" style="font-size:11px;font-family:var(--font-mono);min-width:28px;">12px</span>
               </div>
             </div>
+            <div class="form-group">
+              <label class="form-label">Nombre del contacto</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="range" id="size-nombre" min="12" max="28" value="15" step="1"
+                  oninput="aplicarTamanio('nombre',this.value)" style="flex:1;">
+                <span id="size-nombre-val" style="font-size:11px;font-family:var(--font-mono);min-width:28px;">15px</span>
+              </div>
+            </div>
           </div>
 
           <div class="btn-row">
