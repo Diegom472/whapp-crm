@@ -395,6 +395,14 @@ body {
 .msg-action-btn:hover { background: var(--bg3); color: var(--text); }
 .msg-action-btn.del:hover { color: var(--accent); }
 
+/* Resaltado al saltar a un mensaje citado */
+@keyframes msgPulse {
+  0% { box-shadow: 0 0 0 0 var(--accent-dim); transform: scale(1); }
+  30% { box-shadow: 0 0 0 4px var(--accent-dim); transform: scale(1.03); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+}
+.bubble.msg-highlight { animation: msgPulse 1.6s ease; outline: 2px solid var(--accent); }
+
 .bubble {
   max-width: 68%; padding: 8px 12px; border-radius: 12px;
   font-size: 13px; line-height: 1.55; position: relative; word-break: break-word;
@@ -499,10 +507,10 @@ body {
 
 /* Etiquetas */
 .etiquetas-panel {
-  display: none; position: absolute; top: -200px; right: 10px;
+  display: none; position: absolute; top: 40px; right: 0;
   background: var(--bg2); border: 1px solid var(--border2);
-  border-radius: var(--radius2); padding: 12px; z-index: 300;
-  width: 220px; box-shadow: var(--shadow2);
+  border-radius: var(--radius2); padding: 12px; z-index: 500;
+  width: 240px; box-shadow: var(--shadow2);
 }
 .etiquetas-panel.open { display: block; }
 .etiqueta-chip {
