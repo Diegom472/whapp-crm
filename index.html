@@ -179,7 +179,10 @@
           <div class="contact-header">
             <div class="contact-avatar-lg av-blue" id="panel-avatar">MR</div>
             <div class="contact-name-lg" id="panel-nombre">Matías Romero</div>
-            <div class="contact-phone" id="panel-telefono">+54 9 3518 05-0130</div>
+            <div style="display:flex;align-items:center;gap:6px;justify-content:center;">
+              <div class="contact-phone" id="panel-telefono">+54 9 3518 05-0130</div>
+              <button onclick="copiarTelefono()" title="Copiar al portapapeles" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:2px;border-radius:4px;display:flex;align-items:center;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text3)'"><i class="ti ti-copy" style="font-size:14px;"></i></button>
+            </div>
             <div class="contact-tags-row" id="panel-tags"></div>
           </div>
 
