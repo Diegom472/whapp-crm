@@ -173,7 +173,7 @@ function renderMensajes(phone) {
     if (m.tipo === 'texto') {
       contenido = `${escHtml(m.editado ? m.texto + ' ✏️' : m.texto)}`;
     } else if (m.tipo === 'imagen') {
-      contenido = `<img src="${m.url}" style="max-width:200px;border-radius:6px;display:block;margin-bottom:4px;" onerror="this.style.display='none'">`;
+      contenido = `<img src="${m.url}" style="max-width:200px;border-radius:6px;display:block;margin-bottom:4px;cursor:pointer;" onclick="event.stopPropagation();abrirImagenVisor('${m.url}','${(m.nombre||'imagen').replace(/'/g,'')}')" onerror="this.style.display='none'">`;
     } else if (m.tipo === 'audio') {
       contenido = `<audio controls src="${m.url}" style="max-width:220px;"></audio>`;
     } else if (m.tipo === 'documento') {
@@ -186,19 +186,52 @@ function renderMensajes(phone) {
       return orig ? `<div style="background:rgba(0,0,0,0.08);border-left:3px solid rgba(255,255,255,0.5);border-radius:4px;padding:4px 8px;margin-bottom:5px;font-size:11px;opacity:0.85;">${escHtml((orig.texto||'').slice(0,60))}</div>` : '';
     })() : '';
 
-    const checkBox = modoReenvio ? `<input type="checkbox" class="msg-check" ${msgsSeleccionados.has(m.id)?'checked':''} onchange="toggleMsgSeleccion('${m.id}',this.checked)" style="margin-right:6px;accent-color:var(--accent);">` : '';
+    const checkBox = modoReenvio ? `<input type="checkbox" class="msg-check" ${msgsSeleccionados.has(m.id)?'checked':''} onclick="event.stopPropagation();toggleMsgSeleccion('${m.id}',this.checked)" style="accent-color:var(--accent);width:18px;height:18px;flex-shrink:0;">` : '';
 
-    html += `<div class="msg-row ${cls} ${selClass}" id="msg-${m.id}" style="${modoReenvio?'cursor:pointer;':''}" ${modoReenvio?`onclick="toggleMsgSeleccion('${m.id}',!msgsSeleccionados.has('${m.id}'))"`:''}>
-      ${cls==='in' && modoReenvio ? checkBox : ''}
-      ${cls==='out' ? acciones : ''}
-      <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${hora}</div></div>
-      ${cls==='in' ? acciones : ''}
-      ${cls==='out' && modoReenvio ? checkBox : ''}
-    </div>`;
+    if (modoReenvio) {
+      // En modo reenvío: checkbox + burbuja en fila, sin acciones hover
+      html += `<div class="msg-row ${cls} ${selClass}" id="msg-${m.id}" style="cursor:pointer;flex-direction:row;align-items:center;gap:8px;${cls==='out'?'justify-content:flex-end;':''}" onclick="toggleMsgSeleccion('${m.id}',!msgsSeleccionados.has('${m.id}'))">
+        ${cls==='in' ? checkBox : ''}
+        <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${hora}</div></div>
+        ${cls==='out' ? checkBox : ''}
+      </div>`;
+    } else {
+      // Modo normal: burbuja + acciones debajo
+      html += `<div class="msg-row ${cls} ${selClass}" id="msg-${m.id}">
+        <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${hora}</div></div>
+        ${acciones}
+      </div>`;
+    }
   });
 
   container.innerHTML = html;
-  container.scrollTop = container.scrollHeight;
+  // Forzar scroll al fondo (último mensaje siempre visible)
+  requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+}
+
+// ── VISOR DE IMÁGENES ──
+function abrirImagenVisor(url, nombre) {
+  let visor = document.getElementById('image-visor');
+  if (!visor) {
+    visor = document.createElement('div');
+    visor.id = 'image-visor';
+    visor.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;';
+    visor.onclick = (e) => { if (e.target === visor) cerrarImagenVisor(); };
+    document.body.appendChild(visor);
+  }
+  visor.innerHTML = `
+    <img src="${url}" style="max-width:90vw;max-height:80vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+    <div style="display:flex;gap:10px;">
+      <a href="${url}" download="${nombre||'imagen'}" class="btn btn-primary"><i class="ti ti-download"></i> Descargar</a>
+      <button class="btn btn-secondary" onclick="window.open('${url}','_blank')"><i class="ti ti-external-link"></i> Abrir en pestaña</button>
+      <button class="btn btn-secondary" onclick="cerrarImagenVisor()"><i class="ti ti-x"></i> Cerrar</button>
+    </div>`;
+  visor.style.display = 'flex';
+}
+
+function cerrarImagenVisor() {
+  const visor = document.getElementById('image-visor');
+  if (visor) visor.style.display = 'none';
 }
 
 // ── ACCIONES SOBRE MENSAJES ──
@@ -334,27 +367,51 @@ function toggleContactoReenvio(phone) {
 }
 
 async function confirmarReenvio() {
-  if (!S.convActiva || !contactosReenvioSeleccionados.size || !msgsSeleccionados.size) return;
-  const phone = S.convActiva.phone;
-  const msgs  = (S.mensajesCache[phone]||[]).filter(m => msgsSeleccionados.has(m.id));
+  if (!S.convActiva) { showToast('No hay conversación activa', 'error'); return; }
+  if (!contactosReenvioSeleccionados.size) { showToast('Seleccioná al menos un destinatario', 'error'); return; }
+  if (!msgsSeleccionados.size) { showToast('No hay mensajes seleccionados', 'error'); return; }
 
-  for (const dest of contactosReenvioSeleccionados) {
+  const phone = S.convActiva.phone;
+  // Filtrar y ORDENAR por timestamp para respetar el orden original de la conversación
+  const msgs = (S.mensajesCache[phone]||[])
+    .filter(m => msgsSeleccionados.has(m.id))
+    .sort((a,b) => (a.ts||0) - (b.ts||0));
+
+  const destinos = [...contactosReenvioSeleccionados];
+  const totalDestinos = destinos.length;
+
+  showToast(`Reenviando ${msgs.length} mensaje(s) a ${totalDestinos} contacto(s)...`, 'warn');
+
+  for (const dest of destinos) {
     if (!S.mensajesCache[dest]) S.mensajesCache[dest] = [];
-    // Enviar en orden secuencial con espera entre archivos pesados
-    for (const msg of msgs) {
-      const copia = { ...msg, id: generarId('MSG'), dir: 'out', ts: Date.now(), reenviado: true };
+    // Enviar SECUENCIALMENTE respetando el orden
+    let baseTs = Date.now();
+    for (let i = 0; i < msgs.length; i++) {
+      const msg = msgs[i];
+      // ts incremental para mantener orden visual aunque lleguen rápido
+      const copia = { ...msg, id: generarId('MSG'), dir: 'out', ts: baseTs + i * 1000, reenviado: true };
       S.mensajesCache[dest].push(copia);
-      // Esperar más entre archivos pesados para respetar el orden
-      const delay = (msg.tipo === 'texto') ? 100 : 800;
-      await new Promise(r => setTimeout(r, delay));
+
+      // Actualizar última conversación
+      const convDest = S.conversaciones.find(c => c.phone === dest);
+      if (convDest) {
+        convDest.lastMsg = msg.tipo === 'texto' ? msg.texto : `[${msg.tipo}]`;
+        convDest.lastTs = copia.ts;
+      }
+
+      // Enviar por WhatsApp respetando orden: esperar más en archivos pesados
+      const delay = (msg.tipo === 'texto') ? 150 : 900;
       await enviarPorWhatsApp(dest, msg.tipo === 'texto' ? msg.texto : msg.url, msg.tipo === 'texto' ? 'text' : msg.tipo);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
 
+  saveToFirebase('crmw_conversaciones', S.conversaciones);
   cerrarModal('modal-selector-reenvio');
   cancelarReenvio();
   contactosReenvioSeleccionados = new Set();
-  showToast(`Mensajes reenviados a ${contactosReenvioSeleccionados.size || 'los contactos seleccionados'}`);
+  renderConvList();
+  showToast(`✓ Reenviado a ${totalDestinos} contacto(s)`);
 }
 
 // ── ENVIAR MENSAJE ──
@@ -702,16 +759,13 @@ function guardarNuevaBusqueda() {
 
 function actualizarBusqueda() {
   if (!S.convActiva) return;
-  // Cancelar cualquier autosave pendiente para evitar conflictos
   clearTimeout(busquedaAutoSaveTimer);
 
   const phone = S.convActiva.phone;
   let busq = S.busquedas.find(b => b.phone === phone && !b.terminada);
 
-  // Si no existe una búsqueda activa, crear una nueva
   if (!busq) { guardarNuevaBusqueda(); return; }
 
-  // Actualizar los campos
   busq.palabras  = document.getElementById('b-palabras').value;
   busq.tipo      = document.getElementById('b-tipo').value;
   busq.rango     = document.getElementById('b-rango').value;
@@ -720,9 +774,13 @@ function actualizarBusqueda() {
   busq.prop3     = document.getElementById('b-prop3').value;
   busq.guardada  = true;
   busq.updatedAt = Date.now();
+  // Asegurar que el operador coincida con el usuario actual para que aparezca en SUS pendientes
+  if (S.usuario?.email && busq.operador !== S.usuario.email) {
+    busq.operador = S.usuario.email;
+  }
 
   saveToFirebase('crmw_busquedas', S.busquedas);
-  renderPendientes();          // ← redibuja los nodales con datos nuevos
+  renderPendientes();
   renderTagsHeader(S.convActiva);
   showToast('Búsqueda actualizada');
 }

@@ -325,7 +325,7 @@ function aplicarFuente(zona, familia) {
 }
 
 function aplicarTamanio(zona, valor) {
-  const labels = { general: 'size-general-val', mensajes: 'size-mensajes-val', botones: 'size-botones-val', nodales: 'size-nodales-val', panel: 'size-panel-val' };
+  const labels = { general: 'size-general-val', mensajes: 'size-mensajes-val', botones: 'size-botones-val', nodales: 'size-nodales-val', panel: 'size-panel-val', nombre: 'size-nombre-val' };
   const el = document.getElementById(labels[zona]);
   if (el) el.textContent = valor + 'px';
 
@@ -333,7 +333,6 @@ function aplicarTamanio(zona, valor) {
   S.config.tamanios[zona] = valor;
   saveLocal();
 
-  // Inyectar/actualizar una hoja de estilos dinámica (más robusto que estilos inline)
   let styleEl = document.getElementById('dynamic-sizes');
   if (!styleEl) {
     styleEl = document.createElement('style');
@@ -341,7 +340,6 @@ function aplicarTamanio(zona, valor) {
     document.head.appendChild(styleEl);
   }
 
-  // Reconstruir todas las reglas desde S.config.tamanios
   const t = S.config.tamanios;
   let css = '';
   if (t.general) css += `body { font-size: ${t.general}px; }\n`;
@@ -349,15 +347,18 @@ function aplicarTamanio(zona, valor) {
   if (t.botones) css += `.btn, .mini-btn, .bar-btn, .nav-tab, .contact-action { font-size: ${t.botones}px !important; }\n`;
   if (t.nodales) css += `.nodal-name { font-size: ${t.nodales}px !important; } .nodal-cat, .nodal-prop, .nodal-rango, .nodal-date { font-size: ${Math.max(10, t.nodales-3)}px !important; }\n`;
   if (t.panel) {
-    // Afecta TODO el panel de info del contacto: labels, inputs, botones, textos
+    // Panel info contacto SIN tocar el nombre (que tiene su propio control)
     css += `#panel-info-inner { font-size: ${t.panel}px; }\n`;
     css += `#panel-info-inner .field-label, #panel-info-inner .form-label { font-size: ${Math.max(9, t.panel-2)}px !important; }\n`;
     css += `#panel-info-inner .field-input, #panel-info-inner .field-select, #panel-info-inner .auto-field { font-size: ${t.panel}px !important; }\n`;
     css += `#panel-info-inner .contact-action { font-size: ${Math.max(9, t.panel-2)}px !important; }\n`;
     css += `#panel-info-inner .collapse-hdr-title { font-size: ${t.panel}px !important; }\n`;
-    css += `#panel-info-inner .contact-name-lg { font-size: ${t.panel+3}px !important; }\n`;
     css += `#panel-info-inner .contact-phone { font-size: ${t.panel-1}px !important; }\n`;
     css += `#panel-info-inner .comp-item-name, #panel-info-inner .prog-item-title, #panel-info-inner .archivo-name { font-size: ${t.panel}px !important; }\n`;
+  }
+  // Nombre del contacto — control exclusivo
+  if (t.nombre) {
+    css += `#panel-nombre, .contact-name-lg { font-size: ${t.nombre}px !important; }\n`;
   }
   styleEl.textContent = css;
 }
