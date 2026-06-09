@@ -109,6 +109,12 @@ function abrirConversacion(phone) {
 
   // Actualizar lista
   renderConvList();
+
+  // Scroll al mensaje más reciente (doble rAF para asegurar render completo)
+  const cont = document.getElementById('chat-messages');
+  if (cont) {
+    requestAnimationFrame(() => requestAnimationFrame(() => { cont.scrollTop = cont.scrollHeight; }));
+  }
 }
 
 function renderTagsHeader(conv) {
@@ -185,7 +191,7 @@ function renderMensajes(phone) {
       if (m.caption) contenido += `<div style="margin-top:4px;">${escHtml(m.caption)}</div>`;
     }
 
-    // Respuesta citada — estilo WhatsApp (autor + texto)
+    // Respuesta citada — estilo WhatsApp (autor + texto), clickeable para saltar
     const citado = m.replyTo ? (() => {
       const orig = (S.mensajesCache[phone]||[]).find(x => x.id === m.replyTo);
       if (!orig) return '';
@@ -193,7 +199,7 @@ function renderMensajes(phone) {
       let resumen = orig.texto || (orig.tipo === 'imagen' ? '📷 Foto' : orig.tipo === 'audio' ? '🎤 Audio' : orig.tipo === 'video' ? '🎬 Video' : '📎 Archivo');
       const borderColor = cls === 'out' ? 'rgba(255,255,255,0.6)' : 'var(--accent)';
       const bgQuote = cls === 'out' ? 'rgba(255,255,255,0.15)' : 'var(--bg3)';
-      return `<div style="background:${bgQuote};border-left:3px solid ${borderColor};border-radius:5px;padding:5px 9px;margin-bottom:5px;font-size:11px;">
+      return `<div onclick="event.stopPropagation();saltarAMensaje('${m.replyTo}')" style="cursor:pointer;background:${bgQuote};border-left:3px solid ${borderColor};border-radius:5px;padding:5px 9px;margin-bottom:5px;font-size:11px;">
         <div style="font-weight:700;color:${cls==='out'?'#fff':'var(--accent)'};margin-bottom:1px;">${escHtml(autor)}</div>
         <div style="opacity:0.85;">${escHtml(resumen.slice(0,70))}</div>
       </div>`;
@@ -286,6 +292,19 @@ function responderMsg(id) {
     input.dataset.replyTo = id;
     input.placeholder = `↩ Respondiendo: "${(msg.texto||'[media]').slice(0,40)}"`;
     input.focus();
+  }
+}
+
+// Saltar a un mensaje y resaltarlo brevemente
+function saltarAMensaje(id) {
+  const row = document.getElementById('msg-' + id);
+  if (!row) { showToast('El mensaje no está visible en este chat', 'warn'); return; }
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Resaltado breve
+  const bubble = row.querySelector('.bubble');
+  if (bubble) {
+    bubble.classList.add('msg-highlight');
+    setTimeout(() => bubble.classList.remove('msg-highlight'), 1600);
   }
 }
 
@@ -834,39 +853,62 @@ function cargarBusquedaActual(phone) {
     document.getElementById('b-prop3').value    = busq.prop3    || '';
     document.getElementById('busqueda-draft-badge').style.display = busq.guardada ? 'none' : 'inline';
   } else {
-    // Limpiar campos
     ['b-palabras','b-tipo','b-rango','b-prop1','b-prop2','b-prop3'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.value = el.tagName === 'SELECT' ? '' : '';
+      if (el) el.value = '';
     });
     document.getElementById('busqueda-draft-badge').style.display = 'inline';
   }
 }
 
+// El autosave ya NO crea búsquedas. Solo guarda un borrador local en la conversación.
+// La búsqueda "real" (nodal en Pendientes) se crea solo con "Guardar Nueva".
 function autosaveBusqueda() {
   if (!S.convActiva) return;
   clearTimeout(busquedaAutoSaveTimer);
   busquedaAutoSaveTimer = setTimeout(() => {
     const phone = S.convActiva.phone;
-    let busq = S.busquedas.find(b => b.phone === phone && !b.terminada);
-    if (!busq) {
-      busq = { id: generarId('B'), phone, guardada: false };
-      S.busquedas.push(busq);
+    // Si ya existe una búsqueda guardada para esta conversación, actualizarla en vivo
+    const busq = S.busquedas.find(b => b.phone === phone && !b.terminada && b.guardada);
+    if (busq) {
+      busq.palabras  = document.getElementById('b-palabras').value;
+      busq.tipo      = document.getElementById('b-tipo').value;
+      busq.rango     = document.getElementById('b-rango').value;
+      busq.prop1     = document.getElementById('b-prop1').value;
+      busq.prop2     = document.getElementById('b-prop2').value;
+      busq.prop3     = document.getElementById('b-prop3').value;
+      busq.updatedAt = Date.now();
+      saveToFirebase('crmw_busquedas', S.busquedas);
+      renderPendientes();
+    } else {
+      // Guardar como borrador en la conversación (no crea nodal todavía)
+      const conv = S.conversaciones.find(c => c.phone === phone);
+      if (conv) {
+        conv.borradorBusqueda = {
+          palabras: document.getElementById('b-palabras').value,
+          tipo:     document.getElementById('b-tipo').value,
+          rango:    document.getElementById('b-rango').value,
+          prop1:    document.getElementById('b-prop1').value,
+          prop2:    document.getElementById('b-prop2').value,
+          prop3:    document.getElementById('b-prop3').value
+        };
+      }
     }
-    busq.palabras = document.getElementById('b-palabras').value;
-    busq.tipo     = document.getElementById('b-tipo').value;
-    busq.rango    = document.getElementById('b-rango').value;
-    busq.prop1    = document.getElementById('b-prop1').value;
-    busq.prop2    = document.getElementById('b-prop2').value;
-    busq.prop3    = document.getElementById('b-prop3').value;
-    busq.updatedAt = Date.now();
-    saveToFirebase('crmw_busquedas', S.busquedas);
-  }, 1500);
+  }, 1200);
 }
 
 function guardarNuevaBusqueda() {
   if (!S.convActiva) return;
+  clearTimeout(busquedaAutoSaveTimer);
   const phone = S.convActiva.phone;
+
+  // Si ya hay una búsqueda activa guardada, NO duplicar: actualizar esa
+  const existente = S.busquedas.find(b => b.phone === phone && !b.terminada && b.guardada);
+  if (existente) {
+    actualizarBusqueda();
+    return;
+  }
+
   const nuevaBusq = {
     id:        generarId('B'),
     phone,
@@ -886,10 +928,7 @@ function guardarNuevaBusqueda() {
   saveToFirebase('crmw_busquedas', S.busquedas);
   renderPendientes();
   renderTagsHeader(S.convActiva);
-
-  // Mover al embudo → Descubierto automáticamente
   moverEnEmbudo(phone, 'Descubierto');
-
   document.getElementById('busqueda-draft-badge').style.display = 'none';
   showToast('Búsqueda guardada y agregada a Pendientes');
 }
@@ -901,6 +940,7 @@ function actualizarBusqueda() {
   const phone = S.convActiva.phone;
   let busq = S.busquedas.find(b => b.phone === phone && !b.terminada);
 
+  // Si no existe ninguna, crear una nueva (primera vez)
   if (!busq) { guardarNuevaBusqueda(); return; }
 
   busq.palabras  = document.getElementById('b-palabras').value;
@@ -911,7 +951,6 @@ function actualizarBusqueda() {
   busq.prop3     = document.getElementById('b-prop3').value;
   busq.guardada  = true;
   busq.updatedAt = Date.now();
-  // Asegurar que el operador coincida con el usuario actual para que aparezca en SUS pendientes
   if (S.usuario?.email && busq.operador !== S.usuario.email) {
     busq.operador = S.usuario.email;
   }
@@ -1784,9 +1823,14 @@ function renderPendientes() {
     const conv   = S.conversaciones.find(c => c.phone === b.phone);
     const nombre = conv?.nombre || b.phone;
 
-    const props = [b.prop1, b.prop2, b.prop3].filter(Boolean);
-    const propHTML = props.length
-      ? props.map(p => `<div class="nodal-prop">${escHtml(p)}</div>`).join('')
+    // Propuestas conservan su posición: 1 arriba, 2 medio, 3 abajo
+    // Si solo está la 2, va al medio; si solo la 3, va abajo
+    const tieneAlguna = b.prop1 || b.prop2 || b.prop3;
+    const slot = (txt) => txt
+      ? `<div class="nodal-prop">${escHtml(txt)}</div>`
+      : `<div class="nodal-prop" style="visibility:hidden;">·</div>`;
+    const propHTML = tieneAlguna
+      ? `${slot(b.prop1)}${slot(b.prop2)}${slot(b.prop3)}`
       : '<div class="nodal-prop" style="color:var(--text3);font-style:italic;">Sin propuestas</div>';
 
     html += `<div class="nodal busqueda" draggable="true"
