@@ -232,9 +232,11 @@ function mountApp() {
   renderConvList();
   renderPendientes();
   verificarRecordatoriosPendientes();
+  verificarProgramadosPendientes();
 
-  // Chequear recordatorios cada minuto
-  setInterval(verificarRecordatoriosPendientes, 60000);
+  // Chequear recordatorios y mensajes programados cada 30 segundos
+  setInterval(verificarRecordatoriosPendientes, 30000);
+  setInterval(verificarProgramadosPendientes, 30000);
 }
 
 // ── NAVEGACIÓN ──
@@ -778,6 +780,59 @@ function verificarRecordatoriosPendientes() {
       showToast(`🔔 Recordatorio: ${r.titulo}`, 'warn');
     }, 300);
   });
+}
+
+// ── ENVÍO AUTOMÁTICO DE MENSAJES PROGRAMADOS ──
+// Frontend: envía mientras el CRM esté abierto.
+// Para envío 100% automático sin navegador, el Cloudflare Worker
+// debe leer S.programados desde Firebase y enviarlos por Cron Trigger.
+async function verificarProgramadosPendientes() {
+  if (!S.usuario) return;
+  const ahora = Date.now();
+  const pendientes = S.programados.filter(p =>
+    !p.enviado &&
+    p.datetime &&
+    new Date(p.datetime).getTime() <= ahora
+  );
+  if (pendientes.length === 0) return;
+
+  for (const prog of pendientes) {
+    const mensajes = prog.mensajes && prog.mensajes.length ? prog.mensajes : [prog.desc].filter(Boolean);
+    // Enviar cada mensaje de la secuencia en orden
+    for (const texto of mensajes) {
+      if (!texto) continue;
+      // Agregar al cache de la conversación
+      if (!S.mensajesCache[prog.phone]) S.mensajesCache[prog.phone] = [];
+      S.mensajesCache[prog.phone].push({
+        id: generarId('MSG'), tipo: 'texto', texto,
+        dir: 'out', ts: Date.now(), programado: true,
+        operador: prog.operador
+      });
+      // Enviar por WhatsApp API
+      await enviarPorWhatsApp(prog.phone, texto, 'text');
+      await new Promise(r => setTimeout(r, 600));
+    }
+    prog.enviado   = true;
+    prog.tsEnviado = Date.now();
+
+    // Actualizar última conversación
+    const conv = S.conversaciones.find(c => c.phone === prog.phone);
+    if (conv) {
+      conv.lastMsg = mensajes[mensajes.length-1] || prog.titulo;
+      conv.lastTs  = Date.now();
+    }
+    showToast(`📤 Mensaje programado enviado: ${prog.titulo}`);
+  }
+
+  saveToFirebase('crmw_programados', S.programados);
+  saveToFirebase('crmw_conversaciones', S.conversaciones);
+  renderConvList();
+  if (S.convActiva) {
+    renderProgListPanel(S.convActiva.phone);
+    if (pendientes.some(p => p.phone === S.convActiva.phone)) {
+      renderMensajes(S.convActiva.phone);
+    }
+  }
 }
 
 // ── INIT ──

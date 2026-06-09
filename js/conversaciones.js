@@ -173,17 +173,30 @@ function renderMensajes(phone) {
     if (m.tipo === 'texto') {
       contenido = `${escHtml(m.editado ? m.texto + ' ✏️' : m.texto)}`;
     } else if (m.tipo === 'imagen') {
-      contenido = `<img src="${m.url}" style="max-width:200px;border-radius:6px;display:block;margin-bottom:4px;cursor:pointer;" onclick="event.stopPropagation();abrirImagenVisor('${m.url}','${(m.nombre||'imagen').replace(/'/g,'')}')" onerror="this.style.display='none'">`;
+      contenido = `<img src="${m.url}" style="max-width:220px;border-radius:6px;display:block;margin-bottom:4px;cursor:pointer;" onclick="event.stopPropagation();abrirImagenVisor('${m.url}','${(m.nombre||'imagen').replace(/'/g,'')}')" onerror="this.style.display='none'">`;
+      if (m.caption) contenido += `<div style="margin-top:2px;">${escHtml(m.caption)}</div>`;
+    } else if (m.tipo === 'video') {
+      contenido = `<video src="${m.url}" controls style="max-width:220px;border-radius:6px;display:block;margin-bottom:4px;"></video>`;
+      if (m.caption) contenido += `<div style="margin-top:2px;">${escHtml(m.caption)}</div>`;
     } else if (m.tipo === 'audio') {
       contenido = `<audio controls src="${m.url}" style="max-width:220px;"></audio>`;
     } else if (m.tipo === 'documento') {
-      contenido = `<div style="display:flex;align-items:center;gap:7px;"><i class="ti ti-file" style="font-size:20px;"></i><div><div style="font-size:12px;">${escHtml(m.nombre||'Archivo')}</div><div style="font-size:10px;opacity:0.7;">${m.mimetype||''}</div></div></div>`;
+      contenido = `<div style="display:flex;align-items:center;gap:7px;cursor:pointer;" onclick="event.stopPropagation();window.open('${m.url}','_blank')"><i class="ti ti-file" style="font-size:20px;"></i><div><div style="font-size:12px;">${escHtml(m.nombre||'Archivo')}</div><div style="font-size:10px;opacity:0.7;">${m.mimetype||''}</div></div></div>`;
+      if (m.caption) contenido += `<div style="margin-top:4px;">${escHtml(m.caption)}</div>`;
     }
 
-    // Respuesta citada
+    // Respuesta citada — estilo WhatsApp (autor + texto)
     const citado = m.replyTo ? (() => {
       const orig = (S.mensajesCache[phone]||[]).find(x => x.id === m.replyTo);
-      return orig ? `<div style="background:rgba(0,0,0,0.08);border-left:3px solid rgba(255,255,255,0.5);border-radius:4px;padding:4px 8px;margin-bottom:5px;font-size:11px;opacity:0.85;">${escHtml((orig.texto||'').slice(0,60))}</div>` : '';
+      if (!orig) return '';
+      const autor = orig.dir === 'out' ? 'Tú' : (S.convActiva?.nombre || 'Contacto');
+      let resumen = orig.texto || (orig.tipo === 'imagen' ? '📷 Foto' : orig.tipo === 'audio' ? '🎤 Audio' : orig.tipo === 'video' ? '🎬 Video' : '📎 Archivo');
+      const borderColor = cls === 'out' ? 'rgba(255,255,255,0.6)' : 'var(--accent)';
+      const bgQuote = cls === 'out' ? 'rgba(255,255,255,0.15)' : 'var(--bg3)';
+      return `<div style="background:${bgQuote};border-left:3px solid ${borderColor};border-radius:5px;padding:5px 9px;margin-bottom:5px;font-size:11px;">
+        <div style="font-weight:700;color:${cls==='out'?'#fff':'var(--accent)'};margin-bottom:1px;">${escHtml(autor)}</div>
+        <div style="opacity:0.85;">${escHtml(resumen.slice(0,70))}</div>
+      </div>`;
     })() : '';
 
     const checkBox = modoReenvio ? `<input type="checkbox" class="msg-check" ${msgsSeleccionados.has(m.id)?'checked':''} onclick="event.stopPropagation();toggleMsgSeleccion('${m.id}',this.checked)" style="accent-color:var(--accent);width:18px;height:18px;flex-shrink:0;">` : '';
@@ -429,23 +442,26 @@ function enviarMensaje() {
     ts:    Date.now(),
     operador: S.usuario?.nombre || 'Sistema'
   };
+  // Si está respondiendo a un mensaje
+  if (input.dataset.replyTo) {
+    msg.replyTo = input.dataset.replyTo;
+    delete input.dataset.replyTo;
+  }
 
-  // Agregar al cache local inmediatamente
   if (!S.mensajesCache[S.convActiva.phone]) S.mensajesCache[S.convActiva.phone] = [];
   S.mensajesCache[S.convActiva.phone].push(msg);
   renderMensajes(S.convActiva.phone);
 
-  // Actualizar conversación
   const conv = S.conversaciones.find(c => c.phone === S.convActiva.phone);
   if (conv) { conv.lastMsg = texto; conv.lastTs = Date.now(); }
 
   input.value = '';
   input.style.height = 'auto';
+  input.placeholder = 'Escribí un mensaje...';
 
-  // Enviar por WhatsApp Cloud API via Worker
   enviarPorWhatsApp(S.convActiva.phone, texto, 'text');
-
   saveToFirebase('crmw_conversaciones', S.conversaciones);
+  renderConvList();
 }
 
 function handleMsgKeydown(e) {
@@ -489,45 +505,166 @@ async function enviarPorWhatsApp(phone, contenido, tipo, extra) {
 }
 
 // ── ADJUNTAR ARCHIVOS ──
+// ── ADJUNTAR ARCHIVOS con visor de composición ──
+let colaAdjuntos = [];   // archivos en cola de envío
+let adjuntoActivo = 0;   // índice del archivo que se está editando
+
 function abrirAdjuntar() {
+  if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.mp3,.ogg,.m4a,.opus';
+  input.multiple = true;  // permite seleccionar varios
   input.onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    subirArchivo(file);
+    const files = [...e.target.files];
+    if (!files.length) return;
+    files.forEach(f => {
+      colaAdjuntos.push({
+        file: f,
+        url: URL.createObjectURL(f),
+        tipo: f.type.startsWith('image') ? 'imagen' :
+              f.type.startsWith('audio') ? 'audio' :
+              f.type.startsWith('video') ? 'video' : 'documento',
+        nombre: f.name,
+        mimetype: f.type,
+        caption: ''
+      });
+    });
+    adjuntoActivo = 0;
+    abrirVisorComposicion();
   };
   input.click();
 }
 
-async function subirArchivo(file) {
-  if (!S.convActiva) return;
-  showToast('Subiendo archivo...', 'warn');
+function abrirVisorComposicion() {
+  let visor = document.getElementById('adjunto-composer');
+  if (!visor) {
+    visor = document.createElement('div');
+    visor.id = 'adjunto-composer';
+    visor.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;';
+    document.body.appendChild(visor);
+  }
+  renderVisorComposicion();
+  visor.style.display = 'flex';
+}
 
-  // Subir a Drive o Firebase Storage según config
-  // Por ahora usa URL local para preview inmediato
-  const url = URL.createObjectURL(file);
-  const tipo = file.type.startsWith('image') ? 'imagen' :
-               file.type.startsWith('audio') ? 'audio' :
-               file.type.startsWith('video') ? 'video' : 'documento';
+function renderVisorComposicion() {
+  const visor = document.getElementById('adjunto-composer');
+  if (!visor || !colaAdjuntos.length) { cerrarVisorComposicion(); return; }
+  const a = colaAdjuntos[adjuntoActivo];
 
-  const msg = {
-    id:   generarId('MSG'),
-    tipo: tipo,
-    url:  url,
-    nombre: file.name,
-    mimetype: file.type,
-    dir:  'out',
-    ts:   Date.now(),
-    operador: S.usuario?.nombre
+  let previewHTML = '';
+  if (a.tipo === 'imagen') {
+    previewHTML = `<img src="${a.url}" style="max-width:70vw;max-height:50vh;border-radius:8px;object-fit:contain;">`;
+  } else if (a.tipo === 'video') {
+    previewHTML = `<video src="${a.url}" controls style="max-width:70vw;max-height:50vh;border-radius:8px;"></video>`;
+  } else {
+    previewHTML = `<div style="background:var(--bg2);border-radius:12px;padding:40px 60px;text-align:center;color:var(--text);">
+      <i class="ti ti-file" style="font-size:60px;color:var(--accent);"></i>
+      <div style="margin-top:12px;font-size:14px;font-weight:600;">${escHtml(a.nombre)}</div>
+    </div>`;
+  }
+
+  // Miniaturas de la cola
+  const thumbs = colaAdjuntos.map((item, i) => {
+    const thumb = item.tipo === 'imagen'
+      ? `<img src="${item.url}" style="width:54px;height:54px;object-fit:cover;border-radius:8px;">`
+      : `<div style="width:54px;height:54px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;"><i class="ti ti-file" style="font-size:24px;color:var(--text2);"></i></div>`;
+    return `<div onclick="cambiarAdjuntoActivo(${i})" style="position:relative;cursor:pointer;border:2px solid ${i===adjuntoActivo?'var(--accent)':'transparent'};border-radius:10px;padding:2px;">
+      ${thumb}
+      <button onclick="event.stopPropagation();quitarAdjunto(${i})" style="position:absolute;top:-6px;right:-6px;background:var(--accent);color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:11px;cursor:pointer;line-height:1;">✕</button>
+    </div>`;
+  }).join('');
+
+  visor.innerHTML = `
+    <div style="position:absolute;top:16px;right:20px;">
+      <button onclick="cerrarVisorComposicion()" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer;">✕</button>
+    </div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;">${previewHTML}</div>
+    <div style="width:100%;max-width:600px;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:24px;padding:6px 8px 6px 16px;">
+        <input id="adjunto-caption" type="text" value="${escHtml(a.caption||'')}"
+          oninput="guardarCaptionActivo(this.value)"
+          placeholder="Añadí un texto..."
+          style="flex:1;background:none;border:none;outline:none;font-size:14px;color:var(--text);font-family:var(--font);">
+        <button onclick="enviarTodaLaCola()" class="send-btn" style="flex-shrink:0;"><i class="ti ti-send"></i></button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;">
+        ${thumbs}
+        <button onclick="agregarMasAdjuntos()" style="width:54px;height:54px;border-radius:10px;border:2px dashed var(--border2);background:var(--bg3);color:var(--text2);font-size:24px;cursor:pointer;">+</button>
+      </div>
+    </div>`;
+}
+
+function cambiarAdjuntoActivo(i) { adjuntoActivo = i; renderVisorComposicion(); }
+function guardarCaptionActivo(val) { if (colaAdjuntos[adjuntoActivo]) colaAdjuntos[adjuntoActivo].caption = val; }
+function quitarAdjunto(i) {
+  colaAdjuntos.splice(i, 1);
+  if (adjuntoActivo >= colaAdjuntos.length) adjuntoActivo = Math.max(0, colaAdjuntos.length-1);
+  renderVisorComposicion();
+}
+function agregarMasAdjuntos() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx'; input.multiple = true;
+  input.onchange = e => {
+    [...e.target.files].forEach(f => {
+      colaAdjuntos.push({
+        file: f, url: URL.createObjectURL(f),
+        tipo: f.type.startsWith('image') ? 'imagen' : f.type.startsWith('video') ? 'video' : 'documento',
+        nombre: f.name, mimetype: f.type, caption: ''
+      });
+    });
+    renderVisorComposicion();
   };
+  input.click();
+}
+function cerrarVisorComposicion() {
+  const visor = document.getElementById('adjunto-composer');
+  if (visor) visor.style.display = 'none';
+  colaAdjuntos = []; adjuntoActivo = 0;
+}
 
-  if (!S.mensajesCache[S.convActiva.phone]) S.mensajesCache[S.convActiva.phone] = [];
-  S.mensajesCache[S.convActiva.phone].push(msg);
-  renderMensajes(S.convActiva.phone);
+async function enviarTodaLaCola() {
+  if (!S.convActiva || !colaAdjuntos.length) return;
+  const phone = S.convActiva.phone;
+  if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
 
-  showToast('Archivo enviado');
+  let baseTs = Date.now();
+  for (let i = 0; i < colaAdjuntos.length; i++) {
+    const a = colaAdjuntos[i];
+    // Mensaje del archivo
+    S.mensajesCache[phone].push({
+      id: generarId('MSG'), tipo: a.tipo, url: a.url,
+      nombre: a.nombre, mimetype: a.mimetype,
+      caption: a.caption || '',
+      dir: 'out', ts: baseTs + i*1000, operador: S.usuario?.nombre
+    });
+    await enviarPorWhatsApp(phone, a.url, a.tipo);
+    // Si tiene caption, mandarlo como texto adjunto
+    await new Promise(r => setTimeout(r, 400));
+  }
+
+  const conv = S.conversaciones.find(c => c.phone === phone);
+  if (conv) { conv.lastMsg = `[${colaAdjuntos.length} archivo(s)]`; conv.lastTs = Date.now(); }
+
+  renderMensajes(phone);
+  renderConvList();
+  cerrarVisorComposicion();
+  showToast('Archivos enviados');
+}
+
+async function subirArchivo(file) {
+  // Compatibilidad: un solo archivo va directo a la cola/visor
+  if (!S.convActiva) return;
+  colaAdjuntos = [{
+    file, url: URL.createObjectURL(file),
+    tipo: file.type.startsWith('image') ? 'imagen' :
+          file.type.startsWith('audio') ? 'audio' :
+          file.type.startsWith('video') ? 'video' : 'documento',
+    nombre: file.name, mimetype: file.type, caption: ''
+  }];
+  adjuntoActivo = 0;
+  abrirVisorComposicion();
 }
 
 // ── GRABADOR DE AUDIO — flujo simplificado ──
@@ -1388,16 +1525,24 @@ function renderProgListPanel(phone) {
     container.innerHTML = `<div style="text-align:center;padding:10px;color:var(--text3);font-size:12px;">Sin mensajes programados</div>`;
     return;
   }
-  container.innerHTML = progs.map(p => `
-    <div class="prog-item" ondblclick="abrirEditarProg('${p.id}')">
-      <div class="prog-item-title">${escHtml(p.titulo||'Sin título')}</div>
-      <div class="prog-item-meta">${p.fecha||''} ${p.hora||''}</div>
-      <div class="prog-item-sub">${escHtml(p.desc||'')}</div>
-    </div>`).join('');
+  container.innerHTML = progs.map(p => {
+    const textoMsg = (p.mensajes && p.mensajes.length) ? p.mensajes[0] : (p.desc||'');
+    return `
+    <div class="prog-item" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" ondblclick="abrirEditarProg('${p.id}')" title="Doble click para editar">
+      <div style="border-right:1px solid var(--border);padding-right:8px;">
+        <div class="prog-item-title">${escHtml(p.titulo||'Sin título')}</div>
+        <div class="prog-item-meta">${p.fecha||''} ${p.hora||''}</div>
+      </div>
+      <div>
+        <div class="prog-item-sub" style="white-space:normal;">${escHtml((textoMsg||'').slice(0,100))}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function abrirNuevoMsgProgramado() {
   if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
+  document.getElementById('modal-programado').dataset.editId = '';
   document.getElementById('modal-prog-title').textContent = 'Programar nuevo mensaje';
   document.getElementById('prog-titulo').value = '';
   document.getElementById('prog-desc').value = '';
@@ -1434,6 +1579,35 @@ function agregarMensajeProg() {
   container.appendChild(div);
 }
 
+function abrirEditarProg(id) {
+  const p = S.programados.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('modal-prog-title').textContent = 'Editar mensaje programado';
+  document.getElementById('modal-programado').dataset.editId = id;
+  document.getElementById('prog-titulo').value = p.titulo || '';
+  document.getElementById('prog-desc').value   = p.desc || '';
+  // Separar fecha y hora desde datetime
+  if (p.datetime) {
+    const [fecha, hora] = p.datetime.split('T');
+    document.getElementById('prog-date').value = fecha || '';
+    document.getElementById('prog-time').value = (hora||'').slice(0,5);
+  }
+  // Reconstruir mensajes
+  const container = document.getElementById('prog-mensajes-container');
+  const msgs = p.mensajes && p.mensajes.length ? p.mensajes : [''];
+  container.innerHTML = msgs.map((m, i) => `
+    <div class="form-group" style="margin-top:10px;">
+      <label class="form-label">Mensaje ${i+1}</label>
+      <textarea class="form-input" id="prog-msg-${i+1}" rows="3" placeholder="Texto del mensaje...">${escHtml(m)}</textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button class="btn btn-secondary btn-xs" onclick="usarTemplate(${i+1})"><i class="ti ti-layout-grid"></i> Template</button>
+        <button class="btn btn-secondary btn-xs" onclick="grabarAudio(${i+1})"><i class="ti ti-microphone"></i> Audio</button>
+      </div>
+    </div>`).join('');
+  itemsCount = msgs.length;
+  abrirModal('modal-programado');
+}
+
 function agendarMensaje() {
   if (!S.convActiva) return;
   const date   = document.getElementById('prog-date').value;
@@ -1449,25 +1623,36 @@ function agendarMensaje() {
     if (el?.value) msgs.push(el.value);
   }
 
-  const prog = {
-    id:       generarId('PROG'),
-    phone:    S.convActiva.phone,
-    operador: S.usuario?.email,
-    titulo,
-    desc,
-    datetime: dt,
-    fecha:    new Date(dt).toLocaleDateString('es-AR'),
-    hora:     new Date(dt).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}),
-    mensajes: msgs,
-    enviado:  false,
-    createdAt: Date.now()
-  };
+  const editId = document.getElementById('modal-programado').dataset.editId;
+  if (editId) {
+    // Editar existente
+    const p = S.programados.find(x => x.id === editId);
+    if (p) {
+      p.titulo = titulo; p.desc = desc; p.datetime = dt;
+      p.fecha = new Date(dt).toLocaleDateString('es-AR');
+      p.hora  = new Date(dt).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+      p.mensajes = msgs;
+    }
+    document.getElementById('modal-programado').dataset.editId = '';
+  } else {
+    // Crear nuevo
+    S.programados.push({
+      id:        generarId('PROG'),
+      phone:     S.convActiva.phone,
+      operador:  S.usuario?.email,
+      titulo, desc, datetime: dt,
+      fecha:     new Date(dt).toLocaleDateString('es-AR'),
+      hora:      new Date(dt).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}),
+      mensajes:  msgs,
+      enviado:   false,
+      createdAt: Date.now()
+    });
+  }
 
-  S.programados.push(prog);
   saveToFirebase('crmw_programados', S.programados);
   renderProgListPanel(S.convActiva.phone);
   cerrarModal('modal-programado');
-  showToast('Mensaje programado para ' + prog.fecha + ' ' + prog.hora);
+  showToast('Mensaje programado para ' + new Date(dt).toLocaleDateString('es-AR') + ' ' + time);
 }
 
 function actualizarMensajeProg() {
@@ -1482,21 +1667,40 @@ function abrirCarrusel()  { showToast('Carrusel — configuralo en la pestaña P
 function renderRecordatoriosPanel(phone) {
   const container = document.getElementById('recordatorios-list');
   if (!container) return;
-  const recs = S.recordatorios.filter(r => r.phone === phone);
+  const recs = S.recordatorios.filter(r => r.phone === phone && !r.mostrado);
   if (!recs.length) {
     container.innerHTML = `<div style="text-align:center;padding:10px;color:var(--text3);font-size:12px;">Sin recordatorios</div>`;
     return;
   }
   container.innerHTML = recs.map(r => `
-    <div class="prog-item">
-      <div class="prog-item-title">${escHtml(r.titulo)}</div>
-      <div class="prog-item-meta">${r.fecha||''} — ${escHtml(r.operador||'')}</div>
-      <div class="prog-item-sub">${escHtml(r.desc||'')}</div>
+    <div class="prog-item" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" ondblclick="abrirEditarRecordatorio('${r.id}')" title="Doble click para editar">
+      <div style="border-right:1px solid var(--border);padding-right:8px;">
+        <div class="prog-item-title">${escHtml(r.titulo)}</div>
+        <div class="prog-item-meta">${r.fecha||''} ${r.hora||''}</div>
+      </div>
+      <div>
+        <div class="prog-item-sub" style="white-space:normal;">${escHtml((r.desc||'').slice(0,100))}</div>
+      </div>
     </div>`).join('');
+}
+
+function abrirEditarRecordatorio(id) {
+  const r = S.recordatorios.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('modal-recordatorio').dataset.editId = id;
+  if (r.datetime) {
+    const [fecha, hora] = r.datetime.split('T');
+    document.getElementById('rec-date').value = fecha || '';
+    document.getElementById('rec-time').value = (hora||'').slice(0,5);
+  }
+  document.getElementById('rec-titulo').value = r.titulo || '';
+  document.getElementById('rec-desc').value   = r.desc || '';
+  abrirModal('modal-recordatorio');
 }
 
 function abrirNuevoRecordatorio() {
   if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
+  document.getElementById('modal-recordatorio').dataset.editId = '';
   document.getElementById('rec-date').value = '';
   document.getElementById('rec-time').value = '';
   document.getElementById('rec-titulo').value = '';
@@ -1513,23 +1717,32 @@ function guardarRecordatorio() {
   if (!date || !time || !titulo) { showToast('Completá fecha, hora y título', 'error'); return; }
 
   const dt = `${date}T${time}`;
-  const rec = {
-    id:       generarId('REC'),
-    phone:    S.convActiva.phone,
-    operador: S.usuario?.email,
-    titulo,
-    desc,
-    datetime: dt,
-    fecha:    new Date(dt).toLocaleDateString('es-AR'),
-    hora:     time,
-    mostrado: false,
-    createdAt: Date.now()
-  };
-  S.recordatorios.push(rec);
+  const editId = document.getElementById('modal-recordatorio').dataset.editId;
+
+  if (editId) {
+    const r = S.recordatorios.find(x => x.id === editId);
+    if (r) {
+      r.titulo = titulo; r.desc = desc; r.datetime = dt;
+      r.fecha = new Date(dt).toLocaleDateString('es-AR'); r.hora = time;
+      r.mostrado = false;
+    }
+    document.getElementById('modal-recordatorio').dataset.editId = '';
+  } else {
+    S.recordatorios.push({
+      id:       generarId('REC'),
+      phone:    S.convActiva.phone,
+      operador: S.usuario?.email,
+      titulo, desc, datetime: dt,
+      fecha:    new Date(dt).toLocaleDateString('es-AR'),
+      hora:     time,
+      mostrado: false,
+      createdAt: Date.now()
+    });
+  }
   saveToFirebase('crmw_recordatorios', S.recordatorios);
   renderRecordatoriosPanel(S.convActiva.phone);
   cerrarModal('modal-recordatorio');
-  showToast('Recordatorio agendado para ' + rec.fecha + ' ' + rec.hora);
+  showToast('Recordatorio agendado para ' + new Date(dt).toLocaleDateString('es-AR') + ' ' + time);
 }
 
 // ── ARCHIVOS PANEL ──
