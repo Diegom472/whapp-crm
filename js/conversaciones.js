@@ -11,13 +11,16 @@ function renderConvList(filtro) {
   if (!lista) return;
 
   let convs = [...S.conversaciones];
-
-  // Ordenar por último mensaje (más reciente primero)
   convs.sort((a,b) => (b.lastTs||0) - (a.lastTs||0));
 
-  // Filtros rápidos
   if (filtro === 'noleidos') convs = convs.filter(c => (c.unread||0) > 0);
   if (filtro === 'favoritos') convs = convs.filter(c => c.favorito);
+  // Filtro por etiquetas seleccionadas
+  if (filtro === 'etiquetas' && etiquetasFiltroActivas.size > 0) {
+    convs = convs.filter(c =>
+      (c.etiquetas||[]).some(et => etiquetasFiltroActivas.has(et))
+    );
+  }
 
   lista.innerHTML = convs.length ? convs.map(c => buildConvItem(c)).join('') :
     `<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px;">Sin conversaciones</div>`;
@@ -28,8 +31,16 @@ function buildConvItem(c) {
   const initials = obtenerIniciales(c.nombre || c.phone);
   const avClass = colorAvatar(c.phone);
   const badge = c.unread ? `<span class="conv-badge">${c.unread}</span>` : '';
-  const lastMsg = (c.lastMsg || '').slice(0, 38) + ((c.lastMsg||'').length > 38 ? '...' : '');
+  const lastMsg = (c.lastMsg || '').slice(0, 34) + ((c.lastMsg||'').length > 34 ? '...' : '');
   const hora = c.lastTs ? new Date(c.lastTs).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
+
+  // Mini-etiquetas en el item
+  const etiquetas = (c.etiquetas||[]).slice(0,3).map(et => {
+    const def = (S.config.etiquetas || ETIQUETAS_DEFAULT).find(e => e.texto === et);
+    const color = def?.color || 'var(--text2)';
+    const bg = def?.bg || 'var(--bg4)';
+    return `<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;background:${bg};color:${color};">${escHtml(et)}</span>`;
+  }).join('');
 
   return `
   <div class="conv-item ${active}" onclick="abrirConversacion('${c.phone}')">
@@ -37,6 +48,7 @@ function buildConvItem(c) {
     <div class="conv-info">
       <div class="conv-name">${escHtml(c.nombre || c.phone)}</div>
       <div class="conv-last">${escHtml(lastMsg)}</div>
+      ${etiquetas ? `<div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap;">${etiquetas}</div>` : ''}
     </div>
     <div class="conv-meta">
       <span class="conv-time">${hora}</span>
@@ -58,10 +70,77 @@ function filtrarConversaciones(q) {
     `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Sin resultados</div>`;
 }
 
+let etiquetasFiltroActivas = new Set();
+
 function filtrarPor(tipo, btn) {
   document.querySelectorAll('.conv-filter').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+
+  if (tipo === 'etiquetas') {
+    abrirFiltroEtiquetas(btn);
+    return;
+  }
+  // Cerrar panel de filtro de etiquetas si estaba abierto
+  const panel = document.getElementById('filtro-etiquetas-panel');
+  if (panel) panel.classList.remove('open');
   renderConvList(tipo === 'todos' ? null : tipo);
+}
+
+function abrirFiltroEtiquetas(btn) {
+  let panel = document.getElementById('filtro-etiquetas-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'filtro-etiquetas-panel';
+    panel.style.cssText = 'position:absolute;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:12px;z-index:500;width:230px;box-shadow:var(--shadow2);';
+    document.querySelector('.conv-filters').style.position = 'relative';
+    document.querySelector('.conv-filters').appendChild(panel);
+  }
+  const r = btn.getBoundingClientRect();
+  panel.style.top = '38px';
+  panel.style.left = '6px';
+  renderFiltroEtiquetasPanel();
+  panel.classList.add('open');
+  panel.style.display = 'block';
+}
+
+function renderFiltroEtiquetasPanel() {
+  const panel = document.getElementById('filtro-etiquetas-panel');
+  if (!panel) return;
+  const etiquetas = S.config.etiquetas || ETIQUETAS_DEFAULT;
+  panel.innerHTML = `
+    <div style="font-family:var(--font-cond);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;color:var(--text2);">Filtrar por etiqueta</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;">
+      ${etiquetas.map(et => {
+        const sel = etiquetasFiltroActivas.has(et.texto);
+        return `<span class="etiqueta-chip ${sel?'selected':''}" style="background:${et.bg};color:${et.color};border-color:${sel?et.color:'transparent'};" onclick="toggleFiltroEtiqueta('${escHtml(et.texto)}')">${escHtml(et.texto)}${sel?' ✓':''}</span>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:10px;">
+      <button class="mini-btn primary" style="flex:1;" onclick="aplicarFiltroEtiquetas()">Aplicar</button>
+      <button class="mini-btn" onclick="limpiarFiltroEtiquetas()">Limpiar</button>
+    </div>`;
+}
+
+function toggleFiltroEtiqueta(texto) {
+  if (etiquetasFiltroActivas.has(texto)) etiquetasFiltroActivas.delete(texto);
+  else etiquetasFiltroActivas.add(texto);
+  renderFiltroEtiquetasPanel();
+}
+
+function aplicarFiltroEtiquetas() {
+  renderConvList('etiquetas');
+  const panel = document.getElementById('filtro-etiquetas-panel');
+  if (panel) panel.classList.remove('open');
+  if (etiquetasFiltroActivas.size) {
+    showToast(`Filtrando por: ${[...etiquetasFiltroActivas].join(', ')}`);
+  }
+}
+
+function limpiarFiltroEtiquetas() {
+  etiquetasFiltroActivas.clear();
+  renderFiltroEtiquetasPanel();
+  renderConvList(null);
+  showToast('Filtro de etiquetas limpiado');
 }
 
 // ── ABRIR CONVERSACIÓN ──
@@ -134,6 +213,13 @@ function renderTagsHeader(conv) {
       break;
     }
   }
+  // Etiquetas asignadas manualmente (varias)
+  (conv.etiquetas||[]).forEach(et => {
+    const def = (S.config.etiquetas || ETIQUETAS_DEFAULT).find(e => e.texto === et);
+    const color = def?.color || 'var(--text2)';
+    const bg = def?.bg || 'var(--bg4)';
+    tags.push(`<span class="tag" style="background:${bg};color:${color};">${escHtml(et)}</span>`);
+  });
   container.innerHTML = tags.join('');
 }
 
@@ -185,7 +271,14 @@ function renderMensajes(phone) {
       contenido = `<video src="${m.url}" controls style="max-width:220px;border-radius:6px;display:block;margin-bottom:4px;"></video>`;
       if (m.caption) contenido += `<div style="margin-top:2px;">${escHtml(m.caption)}</div>`;
     } else if (m.tipo === 'audio') {
-      contenido = `<audio controls src="${m.url}" style="max-width:220px;"></audio>`;
+      contenido = `<div style="display:flex;flex-direction:column;gap:4px;">
+        <audio controls src="${m.url}" id="audio-${m.id}" style="max-width:220px;"></audio>
+        <div style="display:flex;gap:4px;">
+          <button onclick="event.stopPropagation();setAudioSpeed('${m.id}',1)" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;color:var(--text2);">1x</button>
+          <button onclick="event.stopPropagation();setAudioSpeed('${m.id}',1.5)" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;color:var(--text2);">1.5x</button>
+          <button onclick="event.stopPropagation();setAudioSpeed('${m.id}',2)" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;color:var(--text2);">2x</button>
+        </div>
+      </div>`;
     } else if (m.tipo === 'documento') {
       contenido = `<div style="display:flex;align-items:center;gap:7px;cursor:pointer;" onclick="event.stopPropagation();window.open('${m.url}','_blank')"><i class="ti ti-file" style="font-size:20px;"></i><div><div style="font-size:12px;">${escHtml(m.nombre||'Archivo')}</div><div style="font-size:10px;opacity:0.7;">${m.mimetype||''}</div></div></div>`;
       if (m.caption) contenido += `<div style="margin-top:4px;">${escHtml(m.caption)}</div>`;
@@ -281,6 +374,29 @@ function copiarMsg(id) {
   const msg = (S.mensajesCache[phone]||[]).find(m => m.id === id);
   if (!msg) return;
   navigator.clipboard.writeText(msg.texto||'').then(() => showToast('Copiado al portapapeles'));
+}
+
+function copiarTelefono() {
+  if (!S.convActiva) return;
+  navigator.clipboard.writeText(S.convActiva.phone || '')
+    .then(() => showToast('Teléfono copiado: ' + S.convActiva.phone))
+    .catch(() => showToast('No se pudo copiar', 'error'));
+}
+
+// Velocidad de reproducción de audios
+function setAudioSpeed(id, speed) {
+  const audio = document.getElementById('audio-' + id);
+  if (!audio) return;
+  audio.playbackRate = speed;
+  if (audio.paused) audio.play().catch(()=>{});
+  // Resaltar botón activo
+  const cont = audio.parentElement;
+  cont.querySelectorAll('button').forEach(b => {
+    const activo = b.textContent === speed + 'x';
+    b.style.background = activo ? 'var(--accent)' : 'var(--bg2)';
+    b.style.color = activo ? '#fff' : 'var(--text2)';
+    b.style.borderColor = activo ? 'var(--accent)' : 'var(--border)';
+  });
 }
 
 function responderMsg(id) {
