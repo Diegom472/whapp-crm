@@ -375,22 +375,22 @@ body {
 .msg-day::before { left: 0; }
 .msg-day::after { right: 0; }
 
-.msg-row { display: flex; flex-shrink: 0; position: relative; }
-.msg-row.out { justify-content: flex-end; }
-.msg-row:hover .msg-actions { opacity: 1; }
+.msg-row { display: flex; flex-shrink: 0; position: relative; flex-direction: column; }
+.msg-row.out { align-items: flex-end; }
+.msg-row.in  { align-items: flex-start; }
+.msg-row:hover .msg-actions { opacity: 1; pointer-events: auto; }
 
-/* Acciones al hover sobre mensaje */
+/* Acciones al hover — DEBAJO de la burbuja, dentro del área visible */
 .msg-actions {
-  opacity: 0; transition: opacity 0.15s;
-  display: flex; gap: 3px; align-items: center;
-  position: absolute; top: 2px;
+  opacity: 0; transition: opacity 0.15s; pointer-events: none;
+  display: flex; gap: 4px; align-items: center;
+  margin-top: 3px; padding: 2px 0;
 }
-.msg-row.out .msg-actions { left: -60px; }
-.msg-row.in  .msg-actions { right: -60px; }
 .msg-action-btn {
   background: var(--bg2); border: 1px solid var(--border);
-  border-radius: 6px; padding: 3px 6px; cursor: pointer;
+  border-radius: 6px; padding: 4px 7px; cursor: pointer;
   font-size: 11px; color: var(--text2); transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
 }
 .msg-action-btn:hover { background: var(--bg3); color: var(--text); }
 .msg-action-btn.del:hover { color: var(--accent); }
