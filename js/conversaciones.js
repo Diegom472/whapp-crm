@@ -173,9 +173,9 @@ function renderFiltroEtiquetasPanel() {
       <button onclick="cerrarFiltroEtiquetasPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;line-height:1;padding:0 2px;">✕</button>
     </div>
     <div style="max-height:260px;overflow-y:auto;">
-      ${etiquetas.map(et => {
+      ${etiquetas.map((et, i) => {
         const sel = etiquetasFiltroActivas.has(et.texto);
-        return `<div class="etiqueta-row" onclick="toggleFiltroEtiqueta('${escHtml(et.texto).replace(/'/g,"\\'")}')"
+        return `<div class="etiqueta-row" onclick="toggleFiltroEtiquetaPorIdx(${i})"
           style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background 0.12s;">
           <span style="width:26px;height:18px;border-radius:5px;background:${et.color};flex-shrink:0;clip-path:polygon(0 0,80% 0,100% 50%,80% 100%,0 100%);"></span>
           <span style="flex:1;font-size:13px;color:var(--text);">${escHtml(et.texto)}</span>
@@ -200,6 +200,11 @@ function toggleFiltroEtiqueta(texto) {
   if (etiquetasFiltroActivas.has(texto)) etiquetasFiltroActivas.delete(texto);
   else etiquetasFiltroActivas.add(texto);
   renderFiltroEtiquetasPanel();
+}
+
+function toggleFiltroEtiquetaPorIdx(i) {
+  const et = getEtiquetas()[i];
+  if (et) toggleFiltroEtiqueta(et.texto);
 }
 
 function aplicarFiltroEtiquetas() {
@@ -2385,7 +2390,7 @@ function renderEtiquetasPanel() {
     const sel = activas.includes(et.texto);
     return `<div class="etiqueta-row" data-idx="${i}"
       oncontextmenu="event.preventDefault();eliminarEtiquetaDef(${i})"
-      onclick="toggleEtiqueta('${escHtml(et.texto).replace(/'/g,"\\'")}')"
+      onclick="toggleEtiquetaPorIdx(${i})"
       title="Click para asignar · Click derecho para eliminar"
       style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background 0.12s;">
       <span style="width:26px;height:18px;border-radius:5px;background:${et.color};flex-shrink:0;clip-path:polygon(0 0,80% 0,100% 50%,80% 100%,0 100%);"></span>
@@ -2402,6 +2407,14 @@ function renderEtiquetasPanel() {
   });
 }
 
+// Asignar/quitar etiqueta por índice (evita problemas de escape de texto)
+function toggleEtiquetaPorIdx(i) {
+  const etiquetas = getEtiquetas();
+  const et = etiquetas[i];
+  if (!et) return;
+  toggleEtiqueta(et.texto);
+}
+
 function toggleEtiqueta(texto) {
   if (!S.convActiva) return;
   const conv = S.conversaciones.find(c => c.phone === S.convActiva.phone);
@@ -2410,9 +2423,11 @@ function toggleEtiqueta(texto) {
   const idx = conv.etiquetas.indexOf(texto);
   if (idx >= 0) conv.etiquetas.splice(idx, 1);
   else conv.etiquetas.push(texto);   // permite VARIAS etiquetas
+  // Sincronizar la referencia activa también
+  if (S.convActiva) S.convActiva.etiquetas = conv.etiquetas;
   saveToFirebase('crmw_conversaciones', S.conversaciones);
   renderEtiquetasPanel();
-  renderConvList();   // refresca mini-etiquetas en la lista
+  renderConvList();
 }
 
 function eliminarEtiquetaDef(i) {
