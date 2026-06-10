@@ -222,6 +222,95 @@ function limpiarFiltroEtiquetas() {
   showToast('Filtro de etiquetas limpiado');
 }
 
+// ── NUEVA CONVERSACIÓN ──
+function abrirNuevaConversacion() {
+  document.getElementById('nc-numero').value = '';
+  document.getElementById('nc-nombre').value = '';
+  document.getElementById('nc-resultado-busqueda').innerHTML = '';
+  abrirModal('modal-nueva-conversacion');
+}
+
+function buscarContactoExistente(valor) {
+  const cont = document.getElementById('nc-resultado-busqueda');
+  if (!cont) return;
+  const limpio = (valor||'').replace(/[^\d]/g,'');
+  if (limpio.length < 3) { cont.innerHTML = ''; return; }
+
+  // Buscar entre conversaciones y clientes existentes
+  const matchConv = S.conversaciones.filter(c => (c.phone||'').includes(limpio));
+  const matchCli  = S.clientes.filter(c => (c.whatsapp||'').replace(/[^\d]/g,'').includes(limpio));
+
+  let html = '';
+  if (matchConv.length) {
+    html += `<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Conversaciones existentes:</div>`;
+    html += matchConv.slice(0,3).map(c => `
+      <div onclick="abrirConversacionExistente('${c.phone}')" style="padding:7px 10px;background:var(--bg3);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:13px;">
+        <i class="ti ti-message" style="color:var(--green);"></i> ${escHtml(c.nombre||c.phone)} — ${escHtml(c.phone)}
+      </div>`).join('');
+  }
+  if (matchCli.length) {
+    html += `<div style="font-size:11px;color:var(--text3);margin:6px 0 4px;">Clientes en agenda:</div>`;
+    html += matchCli.slice(0,3).map(c => `
+      <div onclick="usarClienteParaConversacion('${escHtml((c.whatsapp||'')).replace(/'/g,'')}','${escHtml((c.nombre||c.firstName||'')).replace(/'/g,'')}')" style="padding:7px 10px;background:var(--bg3);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:13px;">
+        <i class="ti ti-user" style="color:var(--blue);"></i> ${escHtml(c.nombre||c.firstName||'Sin nombre')} — ${escHtml(c.whatsapp||'')}
+      </div>`).join('');
+  }
+  cont.innerHTML = html;
+}
+
+function abrirConversacionExistente(phone) {
+  cerrarModal('modal-nueva-conversacion');
+  abrirConversacion(phone);
+}
+
+function usarClienteParaConversacion(whatsapp, nombre) {
+  const limpio = whatsapp.replace(/[^\d]/g,'');
+  document.getElementById('nc-numero').value = limpio.replace(/^54/, '');
+  document.getElementById('nc-nombre').value = nombre;
+  document.getElementById('nc-resultado-busqueda').innerHTML = '';
+}
+
+function crearNuevaConversacion() {
+  const codigo = document.getElementById('nc-codigo').value;
+  const numero = document.getElementById('nc-numero').value.replace(/[^\d]/g,'');
+  const nombre = document.getElementById('nc-nombre').value.trim();
+
+  if (numero.length < 6) { showToast('Ingresá un número válido', 'error'); return; }
+
+  // Armar teléfono completo (Argentina necesita el 9 después del código)
+  let phoneCompleto = codigo + numero;
+  if (codigo === '54' && !numero.startsWith('9')) {
+    phoneCompleto = '549' + numero;
+  }
+
+  // Verificar si ya existe
+  let conv = S.conversaciones.find(c => c.phone.replace(/[^\d]/g,'') === phoneCompleto);
+  if (conv) {
+    cerrarModal('modal-nueva-conversacion');
+    abrirConversacion(conv.phone);
+    showToast('La conversación ya existía');
+    return;
+  }
+
+  // Crear nueva
+  conv = {
+    phone:    phoneCompleto,
+    nombre:   nombre || phoneCompleto,
+    lastMsg:  '',
+    lastTs:   Date.now(),
+    unread:   0,
+    etiquetas: []
+  };
+  S.conversaciones.unshift(conv);
+  if (!S.mensajesCache[phoneCompleto]) S.mensajesCache[phoneCompleto] = [];
+
+  saveToFirebase('crmw_conversaciones', S.conversaciones);
+  cerrarModal('modal-nueva-conversacion');
+  renderConvList();
+  abrirConversacion(phoneCompleto);
+  showToast('Conversación iniciada con ' + (nombre || phoneCompleto));
+}
+
 // ── ABRIR CONVERSACIÓN ──
 function abrirConversacion(phone, jumpToMsgId) {
   const conv = S.conversaciones.find(c => c.phone === phone);
@@ -675,6 +764,7 @@ function enviarMensaje() {
 
   enviarPorWhatsApp(S.convActiva.phone, texto, 'text');
   saveToFirebase('crmw_conversaciones', S.conversaciones);
+  guardarMensajes(S.convActiva.phone);
   renderConvList();
 }
 

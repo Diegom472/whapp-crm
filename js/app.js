@@ -111,6 +111,22 @@ function suscribirFirebase() {
     if (data.crmw_embudo) {
       try { S.embudo = JSON.parse(data.crmw_embudo); } catch(e) {}
     }
+    // Cargar mensajes persistidos (solo si no hay nada en cache local más nuevo)
+    if (data.crmw_mensajes) {
+      try {
+        const msgsFirebase = JSON.parse(data.crmw_mensajes);
+        // Merge: mantener lo que ya está en cache, completar con lo de Firebase
+        Object.keys(msgsFirebase).forEach(phone => {
+          if (!S.mensajesCache[phone] || S.mensajesCache[phone].length <= msgsFirebase[phone].length) {
+            S.mensajesCache[phone] = msgsFirebase[phone];
+          }
+        });
+        // Si hay conversación activa, refrescar sus mensajes
+        if (S.convActiva && document.getElementById('chat-messages')) {
+          renderMensajes(S.convActiva.phone);
+        }
+      } catch(e) {}
+    }
     // Refrescar UI si está montada
     if (S.usuario) {
       renderConvList();
@@ -138,6 +154,29 @@ async function saveToFirebase(campo, valor) {
     console.error('Save error:', e);
     return false;
   }
+}
+
+// Guardar mensajes en Firebase (con debounce para no saturar)
+let _guardarMensajesTimer = null;
+function guardarMensajes(phone) {
+  clearTimeout(_guardarMensajesTimer);
+  _guardarMensajesTimer = setTimeout(() => {
+    // Guardar solo los últimos 100 mensajes por conversación (ahorra espacio)
+    const compacto = {};
+    Object.keys(S.mensajesCache).forEach(p => {
+      const msgs = S.mensajesCache[p] || [];
+      // No guardar blobs locales (URLs object) porque expiran; solo texto y links http
+      compacto[p] = msgs.slice(-100).map(m => {
+        const copia = { ...m };
+        // Si la URL es un blob local (no sirve tras recargar), marcarla
+        if (copia.url && copia.url.startsWith('blob:')) {
+          copia.urlExpirada = true;
+        }
+        return copia;
+      });
+    });
+    saveToFirebase('crmw_mensajes', compacto);
+  }, 800);
 }
 
 // ── LOCAL STORAGE ──
