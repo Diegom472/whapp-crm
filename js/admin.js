@@ -411,10 +411,9 @@ function renderAdmin() {
 
 function cargarConfigAdmin() {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val||''; };
+  set('wa-worker-url', S.config.workerUrl);
   set('wa-phone-id', S.config.waPhoneId);
   set('wa-waba-id',  S.config.waWabaId);
-  set('wa-token',    S.config.waToken);
-  set('wa-verify',   S.config.waVerify);
   set('wa-numero',   S.config.waNumero);
   set('meta-pixel',  S.config.metaPixel);
   set('meta-token',  S.config.metaToken);
@@ -474,14 +473,36 @@ async function testGoogleContacts() {
 }
 
 function guardarConfigWA() {
+  S.config.workerUrl = document.getElementById('wa-worker-url').value.trim().replace(/\/$/, '');
   S.config.waPhoneId = document.getElementById('wa-phone-id').value;
   S.config.waWabaId  = document.getElementById('wa-waba-id').value;
-  S.config.waToken   = document.getElementById('wa-token').value;
-  S.config.waVerify  = document.getElementById('wa-verify').value;
   S.config.waNumero  = document.getElementById('wa-numero').value;
   saveLocal();
   document.getElementById('wa-status').textContent = '✓ Guardado';
   showToast('Configuración WhatsApp guardada');
+}
+
+async function testWorker() {
+  const url = document.getElementById('wa-worker-url').value.trim().replace(/\/$/, '');
+  if (!url) { showToast('Cargá primero la URL del Worker', 'error'); return; }
+  const status = document.getElementById('wa-status');
+  status.textContent = 'Probando...';
+  try {
+    const r = await fetch(url + '/');
+    const txt = await r.text();
+    if (txt.includes('CRMW Worker activo') || r.ok) {
+      status.textContent = '✓ Worker conectado';
+      status.style.color = 'var(--green)';
+      showToast('Worker respondiendo correctamente');
+    } else {
+      status.textContent = '✗ Respuesta inesperada';
+      status.style.color = 'var(--accent)';
+    }
+  } catch(e) {
+    status.textContent = '✗ No responde';
+    status.style.color = 'var(--accent)';
+    showToast('No se pudo conectar con el Worker', 'error');
+  }
 }
 
 function testWebhook() { showToast('Verificá el webhook desde la consola de Meta Developers', 'warn'); }

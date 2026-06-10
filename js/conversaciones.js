@@ -692,29 +692,50 @@ function autoResizeInput(el) {
 
 // ── ENVIAR POR WHATSAPP API ──
 async function enviarPorWhatsApp(phone, contenido, tipo, extra) {
-  const token   = S.config.waToken;
-  const phoneId = S.config.waPhoneId;
-  if (!token || !phoneId) { console.warn('WhatsApp API no configurada'); return; }
+  // El CRM ya NO llama a Meta directo (eso expondría el token).
+  // Ahora llama al Cloudflare Worker, que tiene el token protegido.
+  const workerUrl = S.config.workerUrl;
+  if (!workerUrl) {
+    console.warn('Worker URL no configurada. Andá a Admin → WhatsApp API y cargá la URL del Worker.');
+    return { simulado: true };
+  }
 
-  let body;
-  if (tipo === 'text') {
-    body = { messaging_product:'whatsapp', to: phone, type:'text', text:{ body: contenido } };
+  // Normalizar el número (sin +, sin espacios, sin guiones)
+  const to = String(phone).replace(/[^\d]/g, '');
+
+  let payload;
+  if (tipo === 'text' || !tipo) {
+    payload = { to, text: contenido };
   } else if (tipo === 'template') {
-    body = { messaging_product:'whatsapp', to: phone, type:'template', template: contenido };
-  } else if (tipo === 'document') {
-    body = { messaging_product:'whatsapp', to: phone, type:'document', document: contenido };
+    payload = { to, type: 'template', template: contenido };
+  } else if (tipo === 'imagen' || tipo === 'image') {
+    payload = { to, type: 'image', link: contenido };
+  } else if (tipo === 'video') {
+    payload = { to, type: 'video', link: contenido };
+  } else if (tipo === 'audio') {
+    payload = { to, type: 'audio', link: contenido };
+  } else if (tipo === 'documento' || tipo === 'document') {
+    payload = { to, type: 'document', link: contenido, filename: extra?.filename || 'archivo' };
+  } else {
+    payload = { to, text: contenido };
   }
 
   try {
-    const r = await fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+    const r = await fetch(workerUrl.replace(/\/$/, '') + '/send', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
-    return await r.json();
+    const data = await r.json();
+    if (data.error || data.errors) {
+      console.error('WhatsApp send error:', data);
+      showToast('Error al enviar: ' + (data.error?.message || data.error || 'ver consola'), 'error');
+    }
+    return data;
   } catch(e) {
-    console.error('WhatsApp send error:', e);
-    showToast('Error al enviar mensaje', 'error');
+    console.error('Worker send error:', e);
+    showToast('No se pudo conectar con el Worker', 'error');
+    return { error: e.message };
   }
 }
 
