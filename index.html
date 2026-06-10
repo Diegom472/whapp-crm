@@ -70,6 +70,9 @@
     <!-- Lista chats -->
     <div class="conv-list">
       <div class="conv-list-header">
+        <button class="btn btn-primary" onclick="abrirNuevaConversacion()" style="width:100%;justify-content:center;margin-bottom:8px;">
+          <i class="ti ti-message-plus"></i> Nueva conversación
+        </button>
         <div class="conv-search-wrap">
           <i class="ti ti-search"></i>
           <input class="conv-search" id="conv-search-input" type="text" placeholder="Buscar chat..." oninput="filtrarConversaciones(this.value)">
@@ -1085,6 +1088,39 @@
       </select>
     </div>
     <div id="pend-admin-list"></div>
+  </div>
+</div>
+
+<!-- Modal Nueva Conversación -->
+<div class="modal-overlay" id="modal-nueva-conversacion">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-title">
+      Nueva conversación
+      <button class="modal-close" onclick="cerrarModal('modal-nueva-conversacion')">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Número de WhatsApp</label>
+      <div style="display:flex;gap:8px;">
+        <select class="form-select" id="nc-codigo" style="width:90px;">
+          <option value="54">AR +54</option>
+          <option value="1">US +1</option>
+          <option value="55">BR +55</option>
+          <option value="56">CL +56</option>
+          <option value="598">UY +598</option>
+        </select>
+        <input class="form-input" id="nc-numero" type="text" placeholder="351 555 1234" style="flex:1;" oninput="buscarContactoExistente(this.value)">
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Solo números, sin el 0 ni el 15. Ej: 3515551234</div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">Nombre del contacto (opcional)</label>
+      <input class="form-input" id="nc-nombre" type="text" placeholder="Nombre...">
+    </div>
+    <div id="nc-resultado-busqueda" style="margin-bottom:12px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="crearNuevaConversacion()"><i class="ti ti-message-plus"></i> Iniciar conversación</button>
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-nueva-conversacion')">Cancelar</button>
+    </div>
   </div>
 </div>
 
