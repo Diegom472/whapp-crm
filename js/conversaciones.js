@@ -60,14 +60,63 @@ function buildConvItem(c) {
 function filtrarConversaciones(q) {
   const lista = document.getElementById('conv-items-list');
   if (!lista) return;
-  const ql = q.toLowerCase();
-  const convs = S.conversaciones.filter(c =>
-    (c.nombre||'').toLowerCase().includes(ql) ||
-    (c.phone||'').includes(ql) ||
-    (c.lastMsg||'').toLowerCase().includes(ql)
-  );
-  lista.innerHTML = convs.map(buildConvItem).join('') ||
-    `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Sin resultados</div>`;
+  const ql = (q||'').toLowerCase().trim();
+
+  if (!ql) { renderConvList(null); return; }
+
+  const resultados = [];
+  S.conversaciones.forEach(c => {
+    const nombreMatch = (c.nombre||'').toLowerCase().includes(ql);
+    const phoneMatch  = (c.phone||'').includes(ql);
+    const ultimoMatch = (c.lastMsg||'').toLowerCase().includes(ql);
+
+    // Buscar dentro de TODOS los mensajes de la conversación
+    const msgs = S.mensajesCache[c.phone] || [];
+    const msgMatch = msgs.find(m => (m.texto||'').toLowerCase().includes(ql) || (m.caption||'').toLowerCase().includes(ql));
+
+    if (nombreMatch || phoneMatch || ultimoMatch || msgMatch) {
+      resultados.push({ conv: c, msgMatch, nombreMatch, phoneMatch });
+    }
+  });
+
+  if (!resultados.length) {
+    lista.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Sin resultados para "${escHtml(q)}"</div>`;
+    return;
+  }
+
+  // Render con preview del mensaje encontrado resaltado
+  lista.innerHTML = resultados.map(r => {
+    const c = r.conv;
+    const initials = obtenerIniciales(c.nombre || c.phone);
+    const avClass = colorAvatar(c.phone);
+    const active = S.convActiva?.phone === c.phone ? 'active' : '';
+
+    // Si el match fue en un mensaje del historial, mostrar ese fragmento
+    let preview = c.lastMsg || '';
+    if (r.msgMatch && !r.nombreMatch && !r.phoneMatch) {
+      const txt = r.msgMatch.texto || r.msgMatch.caption || '';
+      const idx = txt.toLowerCase().indexOf(ql);
+      const start = Math.max(0, idx - 15);
+      preview = (start>0?'...':'') + txt.slice(start, idx + ql.length + 25);
+      // Resaltar el término
+      const re = new RegExp('(' + ql.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
+      preview = escHtml(preview).replace(re, '<mark style="background:var(--accent-dim);color:var(--accent);padding:0 2px;border-radius:2px;">$1</mark>');
+    } else {
+      preview = escHtml(preview.slice(0, 40));
+    }
+
+    return `
+    <div class="conv-item ${active}" onclick="abrirConversacion('${c.phone}')">
+      <div class="conv-avatar ${avClass}">${initials}</div>
+      <div class="conv-info">
+        <div class="conv-name">${escHtml(c.nombre || c.phone)}</div>
+        <div class="conv-last">${preview}</div>
+      </div>
+      <div class="conv-meta">
+        ${r.msgMatch && !r.nombreMatch ? '<i class="ti ti-message-search" style="color:var(--accent);font-size:13px;" title="Coincidencia en mensajes"></i>' : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 let etiquetasFiltroActivas = new Set();
@@ -213,13 +262,7 @@ function renderTagsHeader(conv) {
       break;
     }
   }
-  // Etiquetas asignadas manualmente (varias)
-  (conv.etiquetas||[]).forEach(et => {
-    const def = (S.config.etiquetas || ETIQUETAS_DEFAULT).find(e => e.texto === et);
-    const color = def?.color || 'var(--text2)';
-    const bg = def?.bg || 'var(--bg4)';
-    tags.push(`<span class="tag" style="background:${bg};color:${color};">${escHtml(et)}</span>`);
-  });
+  // (Las etiquetas manuales NO se muestran acá, solo en el panel de etiquetas)
   container.innerHTML = tags.join('');
 }
 
@@ -957,6 +1000,17 @@ function cargarPanelContacto(conv) {
 
 // ── BÚSQUEDA ACTUAL ──
 let busquedaAutoSaveTimer = null;
+
+// Formatea números en el campo rango con puntos de miles, preservando guiones y símbolos
+function formatearRango(input) {
+  const cursorAtEnd = input.selectionStart === input.value.length;
+  // Detectar todos los grupos de números y formatearlos
+  let val = input.value;
+  val = val.replace(/\d+/g, (num) => {
+    return parseInt(num, 10).toLocaleString('es-AR');
+  });
+  input.value = val;
+}
 
 function cargarBusquedaActual(phone) {
   const busq = S.busquedas.find(b => b.phone === phone && !b.terminada);
@@ -2185,38 +2239,72 @@ function insertarEmoji(emoji) {
 
 // ── ETIQUETAS ──
 const ETIQUETAS_DEFAULT = [
-  { texto: 'GAMER ALTA',   color: 'var(--blue)',   bg: 'var(--blue-dim)' },
-  { texto: 'PROFESIONAL',  color: 'var(--purple)', bg: 'var(--purple-dim)' },
-  { texto: 'CALIENTE',     color: 'var(--accent)', bg: 'var(--accent-dim)' },
-  { texto: 'EN PROCESO',   color: 'var(--amber)',  bg: 'var(--amber-dim)' },
-  { texto: 'PAGÓ',         color: 'var(--green)',  bg: 'var(--green-dim)' },
-  { texto: 'ESPERANDO',    color: 'var(--text2)',  bg: 'var(--bg4)' },
+  { texto: 'Transferencia de la IA', color: '#e83a2f', bg: 'rgba(232,58,47,0.12)' },
+  { texto: 'Respondidos por la IA',  color: '#ff7a6f', bg: 'rgba(255,122,111,0.12)' },
+  { texto: 'Cliente potencial',      color: '#6b8cff', bg: 'rgba(107,140,255,0.12)' },
+  { texto: 'Pagado',                 color: '#b07ce8', bg: 'rgba(176,124,232,0.12)' },
+  { texto: 'Diego',                  color: '#f0c020', bg: 'rgba(240,192,32,0.12)' },
+  { texto: 'Revisar',                color: '#ff5a8a', bg: 'rgba(255,90,138,0.12)' },
 ];
 
+const PALETA_ETIQUETAS = ['#e83a2f','#ff7a6f','#6b8cff','#b07ce8','#f0c020','#ff5a8a','#1d9e75','#17b585','#2d7dd2','#c17f0d','#e8884f','#7c5cbf'];
+
+function getEtiquetas() {
+  if (!S.config.etiquetas || !S.config.etiquetas.length) {
+    S.config.etiquetas = [...ETIQUETAS_DEFAULT];
+  }
+  return S.config.etiquetas;
+}
+
 function abrirEtiquetarModal() {
-  if (!S.convActiva) return;
+  if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
   const panel = document.getElementById('etiquetas-panel');
   if (!panel) return;
-  panel.classList.toggle('open');
-  if (panel.classList.contains('open')) renderEtiquetasPanel();
+  const abierto = panel.classList.toggle('open');
+  if (abierto) {
+    renderEtiquetasPanel();
+    document.addEventListener('keydown', cerrarEtiquetasConEsc);
+  } else {
+    document.removeEventListener('keydown', cerrarEtiquetasConEsc);
+  }
+}
+
+function cerrarEtiquetasPanel() {
+  const panel = document.getElementById('etiquetas-panel');
+  if (panel) panel.classList.remove('open');
+  document.removeEventListener('keydown', cerrarEtiquetasConEsc);
+}
+
+function cerrarEtiquetasConEsc(e) {
+  if (e.key === 'Escape') cerrarEtiquetasPanel();
 }
 
 function renderEtiquetasPanel() {
   const container = document.getElementById('etiquetas-chips');
   if (!container) return;
-  const etiquetas = S.config.etiquetas || ETIQUETAS_DEFAULT;
+  const etiquetas = getEtiquetas();
   const conv = S.convActiva;
   const activas = conv?.etiquetas || [];
 
   container.innerHTML = etiquetas.map((et, i) => {
     const sel = activas.includes(et.texto);
-    return `<span class="etiqueta-chip ${sel ? 'selected' : ''}"
-      style="background:${et.bg};color:${et.color};border-color:${sel ? et.color : 'transparent'}"
-      onclick="toggleEtiqueta('${escHtml(et.texto)}')">
-      ${escHtml(et.texto)}
-      ${sel ? ' ✓' : ''}
-    </span>`;
+    return `<div class="etiqueta-row" data-idx="${i}"
+      oncontextmenu="event.preventDefault();eliminarEtiquetaDef(${i})"
+      onclick="toggleEtiqueta('${escHtml(et.texto).replace(/'/g,"\\'")}')"
+      title="Click para asignar · Click derecho para eliminar"
+      style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background 0.12s;">
+      <span style="width:26px;height:18px;border-radius:5px;background:${et.color};flex-shrink:0;clip-path:polygon(0 0,80% 0,100% 50%,80% 100%,0 100%);"></span>
+      <span style="flex:1;font-size:13px;color:var(--text);">${escHtml(et.texto)}</span>
+      <span style="width:18px;height:18px;border:2px solid ${sel?et.color:'var(--border2)'};border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:${sel?et.color:'transparent'};">
+        ${sel ? '<span style="color:#fff;font-size:12px;line-height:1;">✓</span>' : ''}
+      </span>
+    </div>`;
   }).join('');
+  // Hover effect
+  container.querySelectorAll('.etiqueta-row').forEach(row => {
+    row.onmouseover = () => row.style.background = 'var(--bg3)';
+    row.onmouseout  = () => row.style.background = 'transparent';
+  });
 }
 
 function toggleEtiqueta(texto) {
@@ -2226,19 +2314,41 @@ function toggleEtiqueta(texto) {
   if (!conv.etiquetas) conv.etiquetas = [];
   const idx = conv.etiquetas.indexOf(texto);
   if (idx >= 0) conv.etiquetas.splice(idx, 1);
-  else conv.etiquetas.push(texto);
+  else conv.etiquetas.push(texto);   // permite VARIAS etiquetas
   saveToFirebase('crmw_conversaciones', S.conversaciones);
   renderEtiquetasPanel();
-  renderTagsHeader(conv);
+  renderConvList();   // refresca mini-etiquetas en la lista
+}
+
+function eliminarEtiquetaDef(i) {
+  const etiquetas = getEtiquetas();
+  const et = etiquetas[i];
+  if (!et) return;
+  if (!confirm(`¿Eliminar la etiqueta "${et.texto}"? Se quitará de todos los chats.`)) return;
+  // Quitarla de todas las conversaciones
+  S.conversaciones.forEach(c => {
+    if (c.etiquetas) c.etiquetas = c.etiquetas.filter(e => e !== et.texto);
+  });
+  etiquetas.splice(i, 1);
+  saveLocal();
+  saveToFirebase('crmw_conversaciones', S.conversaciones);
+  renderEtiquetasPanel();
+  renderConvList();
+  showToast('Etiqueta eliminada');
 }
 
 function agregarEtiqueta() {
   const input = document.getElementById('nueva-etiqueta-input');
   if (!input?.value.trim()) return;
-  if (!S.config.etiquetas) S.config.etiquetas = [...ETIQUETAS_DEFAULT];
-  S.config.etiquetas.push({ texto: input.value.trim().toUpperCase(), color: 'var(--text2)', bg: 'var(--bg4)' });
+  const etiquetas = getEtiquetas();
+  const color = PALETA_ETIQUETAS[etiquetas.length % PALETA_ETIQUETAS.length];
+  etiquetas.push({
+    texto: input.value.trim(),
+    color: color,
+    bg: color + '20'  // hex con transparencia
+  });
   input.value = '';
   saveLocal();
   renderEtiquetasPanel();
-  showToast('Etiqueta agregada');
+  showToast('Etiqueta creada');
 }
