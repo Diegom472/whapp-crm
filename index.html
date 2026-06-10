@@ -520,26 +520,20 @@
           <i class="ti ti-chevron-down collapse-arrow" id="arrow-admin-wa"></i>
         </div>
         <div class="admin-card-body" id="body-admin-wa">
-          <div class="notice">Configurá tu número de WhatsApp Business API. El número actual no se modifica.</div>
+          <div class="notice">El CRM se conecta a WhatsApp a través de tu <strong>Cloudflare Worker</strong>. El token vive seguro en el Worker, no acá. Solo necesitás la URL del Worker.</div>
           <div class="form-grid" style="margin-top:12px;">
-            <div class="form-group">
-              <label class="form-label">Phone Number ID</label>
-              <input class="form-input" id="wa-phone-id" type="text" placeholder="123456789012345">
-            </div>
-            <div class="form-group">
-              <label class="form-label">WhatsApp Business Account ID</label>
-              <input class="form-input" id="wa-waba-id" type="text" placeholder="987654321098765">
-            </div>
             <div class="form-group full">
-              <label class="form-label">Access Token</label>
-              <div class="pass-wrap">
-                <input class="form-input" id="wa-token" type="password" placeholder="EAAVeZ...">
-                <button class="eye-btn" onclick="toggleEye('wa-token',this)">👁️</button>
-              </div>
+              <label class="form-label">URL del Worker (Cloudflare)</label>
+              <input class="form-input" id="wa-worker-url" type="text" placeholder="https://crmw-casatecno.tucuenta.workers.dev">
+              <div style="font-size:11px;color:var(--text3);margin-top:4px;">Sin barra al final. Ej: https://crmw-casatecno.casatecnoargentina.workers.dev</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Webhook Verify Token</label>
-              <input class="form-input" id="wa-verify" type="text" placeholder="mi_token_secreto">
+              <label class="form-label">Phone Number ID <span style="color:var(--text3);font-weight:400;">(referencia)</span></label>
+              <input class="form-input" id="wa-phone-id" type="text" placeholder="1006913845848825">
+            </div>
+            <div class="form-group">
+              <label class="form-label">WABA ID <span style="color:var(--text3);font-weight:400;">(referencia)</span></label>
+              <input class="form-input" id="wa-waba-id" type="text" placeholder="1609367616990506">
             </div>
             <div class="form-group">
               <label class="form-label">Número activo</label>
@@ -548,7 +542,7 @@
           </div>
           <div class="btn-row">
             <button class="btn btn-primary btn-sm" onclick="guardarConfigWA()"><i class="ti ti-device-floppy"></i> Guardar</button>
-            <button class="btn btn-secondary btn-sm" onclick="testWebhook()"><i class="ti ti-plug"></i> Probar webhook</button>
+            <button class="btn btn-secondary btn-sm" onclick="testWorker()"><i class="ti ti-plug"></i> Probar conexión Worker</button>
             <span id="wa-status" style="font-size:12px;color:var(--text3);align-self:center;"></span>
           </div>
         </div>
