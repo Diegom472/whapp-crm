@@ -111,11 +111,14 @@
             <button class="icon-btn"><i class="ti ti-dots-vertical"></i></button>
             <!-- Panel etiquetas anclado al header -->
             <div class="etiquetas-panel" id="etiquetas-panel">
-              <div style="font-family:var(--font-cond);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;color:var(--text2);">Etiquetas</div>
-              <div id="etiquetas-chips"></div>
-              <div style="display:flex;gap:6px;margin-top:10px;">
-                <input class="field-input" id="nueva-etiqueta-input" type="text" placeholder="Nueva etiqueta..." style="flex:1;font-size:11px;">
-                <button class="mini-btn primary" onclick="agregarEtiqueta()">+</button>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <span style="font-family:var(--font-cond);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);">Etiquetas</span>
+                <button onclick="cerrarEtiquetasPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;line-height:1;padding:0 2px;">✕</button>
+              </div>
+              <div id="etiquetas-chips" style="max-height:260px;overflow-y:auto;"></div>
+              <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+                <input class="field-input" id="nueva-etiqueta-input" type="text" placeholder="Nueva etiqueta..." style="flex:1;font-size:11px;" onkeydown="if(event.key==='Enter')agregarEtiqueta()">
+                <button class="mini-btn primary" onclick="agregarEtiqueta()">+ Crear</button>
               </div>
             </div>
           </div>
@@ -240,7 +243,7 @@
                   </div>
                   <div class="field-group">
                     <label class="field-label">$ Rango</label>
-                    <input class="field-input" id="b-rango" type="text" placeholder="$ Rango" oninput="autosaveBusqueda()">
+                    <input class="field-input" id="b-rango" type="text" placeholder="$ Rango" oninput="formatearRango(this);autosaveBusqueda()">
                   </div>
                   <div class="field-group">
                     <label class="field-label">Propuesta 1</label>
