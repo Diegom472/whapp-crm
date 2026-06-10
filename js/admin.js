@@ -188,12 +188,44 @@ function filtrarTareasRealizadas() {
   renderTareasRealizadas(desde, hasta);
 }
 
+// Paleta de colores para nodales de tareas
+const COLORES_NODAL = [
+  { nombre: 'Amarillo', bg: '#fef3cd', border: '#f0c020', text: '#7a5c00' },
+  { nombre: 'Celeste',  bg: '#d4e9f7', border: '#2d7dd2', text: '#0d4a7a' },
+  { nombre: 'Verde',    bg: '#d4f0e0', border: '#1d9e75', text: '#0a5c40' },
+  { nombre: 'Rosa',     bg: '#fcdce6', border: '#ff5a8a', text: '#8a2050' },
+  { nombre: 'Lila',     bg: '#e8ddf7', border: '#b07ce8', text: '#5c3a8a' },
+  { nombre: 'Naranja',  bg: '#fde0cd', border: '#e8884f', text: '#8a4a20' },
+  { nombre: 'Gris',     bg: '#e8e8e8', border: '#999', text: '#555' },
+];
+let tareaColorSel = 0;
+
+function renderTareaColorPicker(selIdx) {
+  tareaColorSel = selIdx || 0;
+  const cont = document.getElementById('tarea-color-picker');
+  if (!cont) return;
+  cont.innerHTML = COLORES_NODAL.map((c, i) => `
+    <span onclick="seleccionarColorTarea(${i})" title="${c.nombre}"
+      style="width:30px;height:30px;border-radius:8px;background:${c.bg};border:3px solid ${i===tareaColorSel?c.border:'transparent'};cursor:pointer;display:inline-block;box-shadow:inset 0 0 0 1px ${c.border};"></span>
+  `).join('');
+}
+
+function seleccionarColorTarea(i) {
+  tareaColorSel = i;
+  renderTareaColorPicker(i);
+}
+
 function abrirNuevaTarea() {
   document.getElementById('modal-tarea-title').textContent = 'Nueva tarea';
   document.getElementById('tarea-titulo').value = '';
   document.getElementById('tarea-detalles').value = '';
   document.getElementById('tarea-recordatorios-list').innerHTML = '';
   document.getElementById('modal-tarea').dataset.editId = '';
+  const btnFin = document.getElementById('btn-finalizar-tarea');
+  const btnCrear = document.querySelector('#modal-tarea .btn-primary');
+  if (btnFin) btnFin.style.display = 'none';
+  if (btnCrear) btnCrear.style.display = 'inline-flex';
+  renderTareaColorPicker(0);
   abrirModal('modal-tarea');
 }
 
@@ -204,14 +236,13 @@ function abrirDetalleTarea(id) {
   document.getElementById('tarea-titulo').value   = t.titulo   || '';
   document.getElementById('tarea-detalles').value = t.detalles || '';
   document.getElementById('modal-tarea').dataset.editId = id;
+  renderTareaColorPicker(t.colorIdx || 0);
 
-  // Mostrar/ocultar botón finalizar
   const btnFin = document.getElementById('btn-finalizar-tarea');
   const btnCrear = document.querySelector('#modal-tarea .btn-primary');
   if (btnFin) btnFin.style.display = t.realizada ? 'none' : 'inline-flex';
   if (btnCrear) btnCrear.style.display = 'none';
 
-  // Recordatorios
   const recList = S.recordatorios.filter(r => r.tareaId === id);
   document.getElementById('tarea-recordatorios-list').innerHTML = recList.map(r => `
     <div style="background:var(--nodal-tarea-bg);border:1px solid var(--nodal-tarea-border);border-radius:var(--radius);padding:7px 10px;margin-bottom:5px;font-size:12px;">
@@ -237,12 +268,13 @@ function guardarTarea() {
   const editId = document.getElementById('modal-tarea').dataset.editId;
   if (editId) {
     const t = S.tareas.find(x => x.id === editId);
-    if (t) { t.titulo = titulo; t.detalles = detalles; }
+    if (t) { t.titulo = titulo; t.detalles = detalles; t.colorIdx = tareaColorSel; }
   } else {
     S.tareas.push({
       id:           generarId('T'),
       titulo,
       detalles,
+      colorIdx:     tareaColorSel,
       operador:     S.usuario.email,
       fecha:        fechaHoy(),
       horaCreacion: horaAhora(),

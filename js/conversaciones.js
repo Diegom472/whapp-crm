@@ -105,8 +105,9 @@ function filtrarConversaciones(q) {
       preview = escHtml(preview.slice(0, 40));
     }
 
+    const jumpTo = (r.msgMatch && !r.nombreMatch && !r.phoneMatch) ? r.msgMatch.id : '';
     return `
-    <div class="conv-item ${active}" onclick="abrirConversacion('${c.phone}')">
+    <div class="conv-item ${active}" onclick="abrirConversacion('${c.phone}'${jumpTo ? `,'${jumpTo}'` : ''})">
       <div class="conv-avatar ${avClass}">${initials}</div>
       <div class="conv-info">
         <div class="conv-name">${escHtml(c.nombre || c.phone)}</div>
@@ -140,34 +141,59 @@ function abrirFiltroEtiquetas(btn) {
   if (!panel) {
     panel = document.createElement('div');
     panel.id = 'filtro-etiquetas-panel';
-    panel.style.cssText = 'position:absolute;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:12px;z-index:500;width:230px;box-shadow:var(--shadow2);';
+    panel.style.cssText = 'position:absolute;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:12px;z-index:500;width:250px;box-shadow:var(--shadow2);';
     document.querySelector('.conv-filters').style.position = 'relative';
     document.querySelector('.conv-filters').appendChild(panel);
   }
-  const r = btn.getBoundingClientRect();
   panel.style.top = '38px';
   panel.style.left = '6px';
   renderFiltroEtiquetasPanel();
   panel.classList.add('open');
   panel.style.display = 'block';
+  document.addEventListener('keydown', cerrarFiltroEtiquetasConEsc);
+}
+
+function cerrarFiltroEtiquetasPanel() {
+  const panel = document.getElementById('filtro-etiquetas-panel');
+  if (panel) { panel.classList.remove('open'); panel.style.display = 'none'; }
+  document.removeEventListener('keydown', cerrarFiltroEtiquetasConEsc);
+}
+
+function cerrarFiltroEtiquetasConEsc(e) {
+  if (e.key === 'Escape') cerrarFiltroEtiquetasPanel();
 }
 
 function renderFiltroEtiquetasPanel() {
   const panel = document.getElementById('filtro-etiquetas-panel');
   if (!panel) return;
-  const etiquetas = S.config.etiquetas || ETIQUETAS_DEFAULT;
+  const etiquetas = getEtiquetas();
   panel.innerHTML = `
-    <div style="font-family:var(--font-cond);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;color:var(--text2);">Filtrar por etiqueta</div>
-    <div style="display:flex;flex-wrap:wrap;gap:4px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <span style="font-family:var(--font-cond);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);">Filtrar por etiqueta</span>
+      <button onclick="cerrarFiltroEtiquetasPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;line-height:1;padding:0 2px;">✕</button>
+    </div>
+    <div style="max-height:260px;overflow-y:auto;">
       ${etiquetas.map(et => {
         const sel = etiquetasFiltroActivas.has(et.texto);
-        return `<span class="etiqueta-chip ${sel?'selected':''}" style="background:${et.bg};color:${et.color};border-color:${sel?et.color:'transparent'};" onclick="toggleFiltroEtiqueta('${escHtml(et.texto)}')">${escHtml(et.texto)}${sel?' ✓':''}</span>`;
+        return `<div class="etiqueta-row" onclick="toggleFiltroEtiqueta('${escHtml(et.texto).replace(/'/g,"\\'")}')"
+          style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background 0.12s;">
+          <span style="width:26px;height:18px;border-radius:5px;background:${et.color};flex-shrink:0;clip-path:polygon(0 0,80% 0,100% 50%,80% 100%,0 100%);"></span>
+          <span style="flex:1;font-size:13px;color:var(--text);">${escHtml(et.texto)}</span>
+          <span style="width:18px;height:18px;border:2px solid ${sel?et.color:'var(--border2)'};border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:${sel?et.color:'transparent'};">
+            ${sel ? '<span style="color:#fff;font-size:12px;line-height:1;">✓</span>' : ''}
+          </span>
+        </div>`;
       }).join('')}
     </div>
-    <div style="display:flex;gap:6px;margin-top:10px;">
+    <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
       <button class="mini-btn primary" style="flex:1;" onclick="aplicarFiltroEtiquetas()">Aplicar</button>
       <button class="mini-btn" onclick="limpiarFiltroEtiquetas()">Limpiar</button>
     </div>`;
+  // Hover
+  panel.querySelectorAll('.etiqueta-row').forEach(row => {
+    row.onmouseover = () => row.style.background = 'var(--bg3)';
+    row.onmouseout  = () => row.style.background = 'transparent';
+  });
 }
 
 function toggleFiltroEtiqueta(texto) {
@@ -178,8 +204,7 @@ function toggleFiltroEtiqueta(texto) {
 
 function aplicarFiltroEtiquetas() {
   renderConvList('etiquetas');
-  const panel = document.getElementById('filtro-etiquetas-panel');
-  if (panel) panel.classList.remove('open');
+  cerrarFiltroEtiquetasPanel();
   if (etiquetasFiltroActivas.size) {
     showToast(`Filtrando por: ${[...etiquetasFiltroActivas].join(', ')}`);
   }
@@ -193,7 +218,7 @@ function limpiarFiltroEtiquetas() {
 }
 
 // ── ABRIR CONVERSACIÓN ──
-function abrirConversacion(phone) {
+function abrirConversacion(phone, jumpToMsgId) {
   const conv = S.conversaciones.find(c => c.phone === phone);
   if (!conv) return;
 
@@ -238,10 +263,16 @@ function abrirConversacion(phone) {
   // Actualizar lista
   renderConvList();
 
-  // Scroll al mensaje más reciente (doble rAF para asegurar render completo)
+  // Scroll: si hay mensaje a saltar, ir a él y resaltarlo; si no, al más reciente
   const cont = document.getElementById('chat-messages');
   if (cont) {
-    requestAnimationFrame(() => requestAnimationFrame(() => { cont.scrollTop = cont.scrollHeight; }));
+    if (jumpToMsgId) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        saltarAMensaje(jumpToMsgId);
+      }));
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(() => { cont.scrollTop = cont.scrollHeight; }));
+    }
   }
 }
 
@@ -2003,10 +2034,12 @@ function renderPendientes() {
       ? `${slot(b.prop1)}${slot(b.prop2)}${slot(b.prop3)}`
       : '<div class="nodal-prop" style="color:var(--text3);font-style:italic;">Sin propuestas</div>';
 
-    html += `<div class="nodal busqueda" draggable="true"
+    const colB = (typeof COLORES_NODAL !== 'undefined' && b.colorIdx != null && COLORES_NODAL[b.colorIdx]) || null;
+    const colStyleB = colB ? `style="background:${colB.bg};border-color:${colB.border};"` : '';
+    html += `<div class="nodal busqueda" draggable="true" ${colStyleB}
       data-id="${b.id}" data-tipo="busqueda"
       onclick="abrirDesdeNodal('${b.phone}')"
-      oncontextmenu="event.preventDefault();finalizarDesdeNodal('busqueda','${b.id}')"
+      oncontextmenu="event.preventDefault();menuContextualNodal(event,'busqueda','${b.id}')"
       ondragstart="dragNodal(event,this)"
       ondragend="dragEndNodal(this)"
       ondragover="dragOverNodal(event,this)"
@@ -2027,11 +2060,14 @@ function renderPendientes() {
   misTareas.forEach(t => {
     const fechaCreacion = t.fecha || fechaHoy();
     const horaCreacion  = t.horaCreacion || '';
+    // Color personalizado
+    const col = (typeof COLORES_NODAL !== 'undefined' && COLORES_NODAL[t.colorIdx||0]) || null;
+    const colStyle = col ? `style="background:${col.bg};border-color:${col.border};"` : '';
 
-    html += `<div class="nodal tarea" draggable="true"
+    html += `<div class="nodal tarea" draggable="true" ${colStyle}
       data-id="${t.id}" data-tipo="tarea"
       ondblclick="abrirDetalleTarea('${t.id}')"
-      oncontextmenu="event.preventDefault();finalizarTareaDesdeNodal('${t.id}')"
+      oncontextmenu="event.preventDefault();menuContextualNodal(event,'tarea','${t.id}')"
       ondragstart="dragNodal(event,this)"
       ondragend="dragEndNodal(this)"
       ondragover="dragOverNodal(event,this)"
@@ -2115,6 +2151,65 @@ function finalizarTareaDesdeNodal(id) {
   renderPendientes();
   renderTareas();
   showToast('Tarea finalizada');
+}
+
+// ── MENÚ CONTEXTUAL DE NODALES (click derecho) ──
+function menuContextualNodal(event, tipo, id) {
+  // Eliminar menú previo
+  document.getElementById('nodal-ctx-menu')?.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'nodal-ctx-menu';
+  menu.style.cssText = `position:fixed;top:${event.clientY}px;left:${event.clientX}px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;box-shadow:var(--shadow2);z-index:9999;padding:6px;min-width:180px;`;
+
+  // Opción finalizar
+  let html = `<div class="ctx-item" onclick="ctxFinalizar('${tipo}','${id}')" style="padding:9px 12px;border-radius:6px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;">
+    <i class="ti ti-check" style="color:var(--green);"></i> Finalizar
+  </div>`;
+
+  // Opción cambiar color (paleta) — para ambos tipos
+  const colores = (typeof COLORES_NODAL !== 'undefined') ? COLORES_NODAL : [];
+  html += `<div style="padding:9px 12px;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;">Cambiar color</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 8px;">
+      ${colores.map((c,i) => `<span onclick="ctxCambiarColor('${tipo}','${id}',${i})" title="${c.nombre}" style="width:24px;height:24px;border-radius:6px;background:${c.bg};border:2px solid ${c.border};cursor:pointer;display:inline-block;"></span>`).join('')}
+    </div>`;
+
+  menu.innerHTML = html;
+  document.body.appendChild(menu);
+
+  // Hover en items
+  menu.querySelectorAll('.ctx-item').forEach(it => {
+    it.onmouseover = () => it.style.background = 'var(--bg3)';
+    it.onmouseout  = () => it.style.background = 'transparent';
+  });
+
+  // Cerrar al hacer click afuera
+  setTimeout(() => {
+    document.addEventListener('click', cerrarCtxMenu, { once: true });
+  }, 50);
+}
+
+function cerrarCtxMenu() {
+  document.getElementById('nodal-ctx-menu')?.remove();
+}
+
+function ctxFinalizar(tipo, id) {
+  cerrarCtxMenu();
+  if (tipo === 'tarea') finalizarTareaDesdeNodal(id);
+  else finalizarDesdeNodal(tipo, id);
+}
+
+function ctxCambiarColor(tipo, id, colorIdx) {
+  cerrarCtxMenu();
+  if (tipo === 'tarea') {
+    const t = S.tareas.find(x => x.id === id);
+    if (t) { t.colorIdx = colorIdx; saveToFirebase('crmw_tareas', S.tareas); }
+  } else {
+    const b = S.busquedas.find(x => x.id === id);
+    if (b) { b.colorIdx = colorIdx; saveToFirebase('crmw_busquedas', S.busquedas); }
+  }
+  renderPendientes();
+  showToast('Color cambiado');
 }
 
 function abrirPendientesAdmin() {
@@ -2295,8 +2390,8 @@ function renderEtiquetasPanel() {
       style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background 0.12s;">
       <span style="width:26px;height:18px;border-radius:5px;background:${et.color};flex-shrink:0;clip-path:polygon(0 0,80% 0,100% 50%,80% 100%,0 100%);"></span>
       <span style="flex:1;font-size:13px;color:var(--text);">${escHtml(et.texto)}</span>
-      <span style="width:18px;height:18px;border:2px solid ${sel?et.color:'var(--border2)'};border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:${sel?et.color:'transparent'};">
-        ${sel ? '<span style="color:#fff;font-size:12px;line-height:1;">✓</span>' : ''}
+      <span style="width:18px;height:18px;border:2px solid ${sel?et.color:'#cfcfcf'};border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:${sel?et.color:'#fff'};box-sizing:border-box;">
+        ${sel ? '<span style="color:#fff;font-size:12px;line-height:1;font-weight:700;">✓</span>' : ''}
       </span>
     </div>`;
   }).join('');
