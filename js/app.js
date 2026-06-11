@@ -111,6 +111,9 @@ function suscribirFirebase() {
     if (data.crmw_embudo) {
       try { S.embudo = JSON.parse(data.crmw_embudo); } catch(e) {}
     }
+    if (data.crmw_eventos) {
+      try { S.eventos = JSON.parse(data.crmw_eventos); } catch(e) {}
+    }
     // Cargar mensajes persistidos (solo si no hay nada en cache local más nuevo)
     if (data.crmw_mensajes) {
       try {
@@ -293,6 +296,7 @@ function switchTab(tab) {
   switch(tab) {
     case 'embudo':      renderEmbudo();     break;
     case 'tareas':      renderTareas();     break;
+    case 'calendario':  renderCalendario(); break;
     case 'terminadas':  renderTerminadas(); break;
     case 'predefinidos':renderPredefinidos();break;
     case 'admin':       renderAdmin();      break;

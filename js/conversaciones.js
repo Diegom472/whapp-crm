@@ -2198,11 +2198,41 @@ function renderPendientes() {
     </div>`;
   });
 
+  // ── NODALES DE EVENTOS DEL CALENDARIO ──
+  // Eventos de hoy o anteriores no finalizados (se arrastran)
+  if (typeof eventosPendientesHoy === 'function') {
+    const evs = eventosPendientesHoy();
+    evs.forEach(ev => {
+      const [a,m,d] = ev.fecha.split('-');
+      html += `<div class="nodal" draggable="true" style="background:${ev.color}22;border-color:${ev.color};"
+        data-id="${ev.id}" data-tipo="evento"
+        ondblclick="abrirEventoEditar('${ev.id}')"
+        oncontextmenu="event.preventDefault();finalizarEventoDesdeNodal('${ev.id}')"
+        title="Doble click para editar · Click derecho para finalizar">
+        <div class="nodal-left">
+          <div class="nodal-name">${escHtml(ev.titulo||'Actividad')}</div>
+          <div class="nodal-date">📅 ${d}/${m}${ev.hora ? ' · '+ev.hora : ''}</div>
+        </div>
+        <div class="nodal-right">
+          <div class="nodal-prop">${escHtml((ev.desc||'').slice(0,80))}</div>
+        </div>
+      </div>`;
+    });
+  }
+
   container.innerHTML = html ||
     `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Sin pendientes</div>`;
 }
 
-let dragSrcNodal = null;
+function finalizarEventoDesdeNodal(id) {
+  if (!confirm('¿Finalizar esta actividad?')) return;
+  const ev = (S.eventos||[]).find(e => e.id === id);
+  if (ev) { ev.finalizado = true; ev.tsFinalizado = Date.now(); }
+  saveToFirebase('crmw_eventos', S.eventos);
+  renderPendientes();
+  if (typeof renderCalendario === 'function' && document.getElementById('page-calendario').classList.contains('active')) renderCalendario();
+  showToast('Actividad finalizada');
+}
 
 function dragNodal(e, el) {
   dragSrcNodal = el;
