@@ -476,7 +476,7 @@
 
   <!-- ══ CALENDARIO ══ -->
   <div id="page-calendario" class="page">
-    <div class="cal-container" style="max-width:1200px;margin:0 auto;padding:8px;">
+    <div class="cal-container" style="max-width:1400px;margin:0 auto;padding:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <button class="btn btn-secondary btn-sm" onclick="calNavegar(-1)"><i class="ti ti-chevron-left"></i></button>
@@ -484,10 +484,23 @@
           <button class="btn btn-secondary btn-sm" onclick="calNavegar(1)"><i class="ti ti-chevron-right"></i></button>
           <select class="form-select" id="cal-anio-select" style="width:auto;" onchange="calCambiarAnio(this.value)"></select>
         </div>
-        <div style="display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:3px;">
-          <button class="cal-vista-btn active" data-vista="anio" onclick="calSetVista('anio')">Año</button>
-          <button class="cal-vista-btn" data-vista="mes" onclick="calSetVista('mes')">Mes</button>
-          <button class="cal-vista-btn" data-vista="semana" onclick="calSetVista('semana')">Semana</button>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <!-- Controles solo de vista año -->
+          <div id="cal-anio-controles" style="display:flex;align-items:center;gap:12px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <i class="ti ti-zoom-in" style="font-size:14px;color:var(--text3);"></i>
+              <input type="range" id="cal-zoom" min="80" max="160" value="100" step="10" oninput="calSetZoom(this.value)" style="width:90px;">
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;">
+              <input type="checkbox" id="cal-cuadricula" onchange="calToggleCuadricula(this.checked)">
+              Cuadrícula
+            </label>
+          </div>
+          <div style="display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:3px;">
+            <button class="cal-vista-btn active" data-vista="anio" onclick="calSetVista('anio')">Año</button>
+            <button class="cal-vista-btn" data-vista="mes" onclick="calSetVista('mes')">Mes</button>
+            <button class="cal-vista-btn" data-vista="semana" onclick="calSetVista('semana')">Semana</button>
+          </div>
         </div>
       </div>
       <div id="cal-contenido"></div>
@@ -1317,11 +1330,18 @@
   color:var(--text2); transition:all 0.15s;
 }
 .cal-vista-btn.active { background:var(--accent); color:#fff; }
-.cal-anio-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+
+/* Vista año: año a la izquierda + panel día a la derecha */
+.cal-anio-wrap { display:flex; gap:14px; align-items:flex-start; }
+.cal-anio-main { flex:1; min-width:0; }
+.cal-anio-grid {
+  display:grid; grid-template-columns:repeat(4,1fr); gap:14px;
+}
 .cal-mes-box {
   border:2px solid var(--border2); border-radius:14px; padding:10px; background:var(--bg2);
-  transition:border-color 0.15s;
+  transition:border-color 0.15s, transform 0.1s; cursor:pointer;
 }
+.cal-mes-box.sel-mes { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
 .cal-mes-header {
   text-align:center; font-family:var(--font-cond); font-weight:800; font-size:16px;
   padding:4px; border-radius:8px; cursor:pointer; margin-bottom:6px;
@@ -1335,10 +1355,26 @@
   border-radius:4px; position:relative;
 }
 .cal-mes-tabla td.dia:hover { background:var(--bg3); }
-.cal-mes-tabla td.sem { color:var(--text3); font-size:8px; font-weight:700; cursor:pointer; }
+.cal-mes-tabla td.sem {
+  color:var(--text3); font-size:8px; font-weight:700; cursor:pointer;
+  background:rgba(128,128,128,0.12);
+}
+.cal-mes-tabla td.sem:hover { background:rgba(128,128,128,0.25); }
+.cal-mes-tabla td.sem.sel-sem { background:var(--accent); color:#fff; }
 .cal-mes-tabla td.vacio { cursor:default; }
 .cal-mes-tabla td.hoy { outline:2px solid var(--accent); border-radius:4px; font-weight:800; }
+.cal-mes-tabla td.dia-sel { outline:2px dashed var(--accent); }
 .cal-mes-tabla td.con-evento { font-weight:800; color:#fff; }
+
+/* Cuadrícula activada: líneas internas */
+.cal-cuadricula .cal-mes-tabla td, .cal-cuadricula .cal-mes-tabla th { border:1px solid var(--border); }
+
+/* Panel día lateral */
+.cal-dia-panel {
+  width:300px; flex-shrink:0; background:var(--bg2); border:1px solid var(--border2);
+  border-radius:14px; padding:14px; transition:width 0.2s, padding 0.2s; overflow:hidden;
+}
+.cal-dia-panel.colapsado { width:0; padding:0; border:none; }
 
 /* Vista mes grande */
 .cal-mes-grande { width:100%; border-collapse:collapse; }
