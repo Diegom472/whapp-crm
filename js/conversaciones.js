@@ -1075,11 +1075,13 @@ function iniciarAudio() {
     audioChunks = []; recSeconds = 0; recPaused = false;
 
     // Detectar el formato que realmente soporta este navegador
+    // Priorizar mp4 (más compatible para reproducir) sobre webm
     const formatos = [
+      'audio/mp4',
+      'audio/mp4;codecs=mp4a.40.2',
       'audio/webm;codecs=opus',
       'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/mp4'
+      'audio/ogg;codecs=opus'
     ];
     recMimeType = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
 
@@ -1099,7 +1101,7 @@ function iniciarAudio() {
       document.getElementById('audio-recording-bar').classList.remove('active');
       document.getElementById('audio-paused-bar').classList.add('active');
     };
-    mediaRecorder.start(100);
+    mediaRecorder.start();
     document.getElementById('audio-recording-bar').classList.add('active');
     document.getElementById('audio-paused-bar').classList.remove('active');
 
