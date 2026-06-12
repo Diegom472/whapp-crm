@@ -949,6 +949,33 @@ function cerrarVisorComposicion() {
   colaAdjuntos = []; adjuntoActivo = 0;
 }
 
+// Comprime una imagen antes de subirla (reduce peso y tiempo de subida)
+async function comprimirImagen(file) {
+  // Solo imágenes; otros tipos pasan sin tocar
+  if (!file.type.startsWith('image/')) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    // Redimensionar si es muy grande (máx 1600px de lado mayor)
+    const maxLado = 1600;
+    let { width, height } = bitmap;
+    if (width > maxLado || height > maxLado) {
+      const escala = maxLado / Math.max(width, height);
+      width = Math.round(width * escala);
+      height = Math.round(height * escala);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.82));
+    if (!blob) return file;
+    return new File([blob], (file.name||'imagen').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch(e) {
+    console.warn('No se pudo comprimir, se sube original:', e);
+    return file;
+  }
+}
+
 // Sube un archivo a R2 vía Worker y devuelve el link público permanente
 async function subirArchivoR2(file) {
   const workerUrl = S.config.workerUrl;
@@ -958,6 +985,7 @@ async function subirArchivoR2(file) {
       method: 'POST',
       headers: {
         'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Type': file.type || 'application/octet-stream',
         'X-File-Name': encodeURIComponent(file.name || 'archivo')
       },
       body: file
@@ -978,16 +1006,17 @@ async function enviarTodaLaCola() {
   if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
 
   const total = colaAdjuntos.length;
-  showToast(`Subiendo ${total} archivo(s)...`, 'warn');
 
   let baseTs = Date.now();
   for (let i = 0; i < colaAdjuntos.length; i++) {
     const a = colaAdjuntos[i];
+    showToast(`Subiendo archivo ${i+1} de ${total}...`, 'warn');
 
-    // 1) Subir a R2 para obtener link permanente
+    // 1) Comprimir si es imagen, luego subir a R2
     let urlPermanente = a.url; // fallback al blob si falla
     if (a.file) {
-      const r2url = await subirArchivoR2(a.file);
+      const fileFinal = await comprimirImagen(a.file);
+      const r2url = await subirArchivoR2(fileFinal);
       if (r2url) urlPermanente = r2url;
     }
 
