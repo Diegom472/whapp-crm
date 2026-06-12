@@ -1068,15 +1068,31 @@ let recTimer      = null;
 let recSeconds    = 0;
 let recPaused     = false;
 
+let recMimeType = '';   // formato real de grabación
+
 function iniciarAudio() {
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     audioChunks = []; recSeconds = 0; recPaused = false;
-    mediaRecorder = new MediaRecorder(stream);
+
+    // Detectar el formato que realmente soporta este navegador
+    const formatos = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4'
+    ];
+    recMimeType = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
+
+    mediaRecorder = recMimeType
+      ? new MediaRecorder(stream, { mimeType: recMimeType })
+      : new MediaRecorder(stream);
+
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
-      audioBlob = new Blob(audioChunks, { type: 'audio/ogg; codecs=opus' });
-      // Mostrar directamente barra pausado con player
+      // Usar el MISMO tipo con el que se grabó (sino no reproduce)
+      const tipoReal = recMimeType || 'audio/webm';
+      audioBlob = new Blob(audioChunks, { type: tipoReal });
       const url = URL.createObjectURL(audioBlob);
       const player = document.getElementById('audio-paused-player');
       if (player) { player.src = url; player.load(); }
@@ -1112,12 +1128,15 @@ function pausarAudio() {
 async function enviarAudioPausado() {
   if (!audioBlob || !S.convActiva) return;
   const phone = S.convActiva.phone;
-  const nombre = `audio_${Date.now()}.ogg`;
+  // Extensión según el formato real
+  const tipoReal = audioBlob.type || 'audio/webm';
+  const ext = tipoReal.includes('ogg') ? 'ogg' : tipoReal.includes('mp4') ? 'm4a' : 'webm';
+  const nombre = `audio_${Date.now()}.${ext}`;
   const urlLocal = URL.createObjectURL(audioBlob);
 
   const msg = {
     id:   generarId('MSG'), tipo: 'audio', url: urlLocal,
-    nombre, dir: 'out',
+    nombre, mimetype: tipoReal, dir: 'out',
     ts: Date.now(), operador: S.usuario?.nombre
   };
   if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
@@ -1126,8 +1145,8 @@ async function enviarAudioPausado() {
   cancelarAudio();
   showToast('Subiendo audio...', 'warn');
 
-  // Subir a R2 para link permanente
-  const file = new File([audioBlob], nombre, { type: 'audio/ogg' });
+  // Subir a R2 con el tipo correcto
+  const file = new File([audioBlob], nombre, { type: tipoReal });
   const r2url = await subirArchivoR2(file);
   if (r2url) {
     msg.url = r2url;
