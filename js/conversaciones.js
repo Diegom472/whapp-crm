@@ -949,29 +949,68 @@ function cerrarVisorComposicion() {
   colaAdjuntos = []; adjuntoActivo = 0;
 }
 
+// Sube un archivo a R2 vía Worker y devuelve el link público permanente
+async function subirArchivoR2(file) {
+  const workerUrl = S.config.workerUrl;
+  if (!workerUrl) { showToast('Configurá la URL del Worker en Admin', 'error'); return null; }
+  try {
+    const r = await fetch(workerUrl.replace(/\/$/, '') + '/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(file.name || 'archivo')
+      },
+      body: file
+    });
+    const data = await r.json();
+    if (data.url) return data.url;
+    console.error('Upload R2 error:', data);
+    return null;
+  } catch(e) {
+    console.error('Upload R2 error:', e);
+    return null;
+  }
+}
+
 async function enviarTodaLaCola() {
   if (!S.convActiva || !colaAdjuntos.length) return;
   const phone = S.convActiva.phone;
   if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
 
+  const total = colaAdjuntos.length;
+  showToast(`Subiendo ${total} archivo(s)...`, 'warn');
+
   let baseTs = Date.now();
   for (let i = 0; i < colaAdjuntos.length; i++) {
     const a = colaAdjuntos[i];
-    // Mensaje del archivo
+
+    // 1) Subir a R2 para obtener link permanente
+    let urlPermanente = a.url; // fallback al blob si falla
+    if (a.file) {
+      const r2url = await subirArchivoR2(a.file);
+      if (r2url) urlPermanente = r2url;
+    }
+
+    // 2) Guardar el mensaje con el link permanente
     S.mensajesCache[phone].push({
-      id: generarId('MSG'), tipo: a.tipo, url: a.url,
+      id: generarId('MSG'), tipo: a.tipo, url: urlPermanente,
       nombre: a.nombre, mimetype: a.mimetype,
       caption: a.caption || '',
       dir: 'out', ts: baseTs + i*1000, operador: S.usuario?.nombre
     });
-    await enviarPorWhatsApp(phone, a.url, a.tipo);
-    // Si tiene caption, mandarlo como texto adjunto
+    renderMensajes(phone);
+
+    // 3) Enviar por WhatsApp usando el link permanente (Meta necesita URL pública)
+    const tipoWA = a.tipo === 'imagen' ? 'image' : a.tipo === 'documento' ? 'document' : a.tipo;
+    await enviarPorWhatsApp(phone, urlPermanente, tipoWA, { filename: a.nombre });
     await new Promise(r => setTimeout(r, 400));
   }
 
   const conv = S.conversaciones.find(c => c.phone === phone);
-  if (conv) { conv.lastMsg = `[${colaAdjuntos.length} archivo(s)]`; conv.lastTs = Date.now(); }
+  if (conv) { conv.lastMsg = `[${total} archivo(s)]`; conv.lastTs = Date.now(); }
 
+  guardarMensajes(phone);
+  saveToFirebase('crmw_conversaciones', S.conversaciones);
   renderMensajes(phone);
   renderConvList();
   cerrarVisorComposicion();
@@ -1041,18 +1080,32 @@ function pausarAudio() {
   // El onstop se encarga de mostrar audio-paused-bar
 }
 
-function enviarAudioPausado() {
+async function enviarAudioPausado() {
   if (!audioBlob || !S.convActiva) return;
-  const url = URL.createObjectURL(audioBlob);
+  const phone = S.convActiva.phone;
+  const nombre = `audio_${Date.now()}.ogg`;
+  const urlLocal = URL.createObjectURL(audioBlob);
+
   const msg = {
-    id:   generarId('MSG'), tipo: 'audio', url,
-    nombre: `audio_${Date.now()}.ogg`, dir: 'out',
+    id:   generarId('MSG'), tipo: 'audio', url: urlLocal,
+    nombre, dir: 'out',
     ts: Date.now(), operador: S.usuario?.nombre
   };
-  if (!S.mensajesCache[S.convActiva.phone]) S.mensajesCache[S.convActiva.phone] = [];
-  S.mensajesCache[S.convActiva.phone].push(msg);
-  renderMensajes(S.convActiva.phone);
+  if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
+  S.mensajesCache[phone].push(msg);
+  renderMensajes(phone);
   cancelarAudio();
+  showToast('Subiendo audio...', 'warn');
+
+  // Subir a R2 para link permanente
+  const file = new File([audioBlob], nombre, { type: 'audio/ogg' });
+  const r2url = await subirArchivoR2(file);
+  if (r2url) {
+    msg.url = r2url;
+    renderMensajes(phone);
+    await enviarPorWhatsApp(phone, r2url, 'audio');
+  }
+  guardarMensajes(phone);
   showToast('Audio enviado');
 }
 
