@@ -22,12 +22,37 @@ let calVista = 'anio';
 let calAnio  = new Date().getFullYear();
 let calMesActual = new Date().getMonth();
 let calSemanaRef = new Date();
-let evColorSel = 4; // celeste por defecto
+let calSemanaSeleccionada = null;  // {anio, mes, dia} o null
+let calDiaSeleccionado = null;     // fecha ISO o null
+let calDiaPanelColapsado = false;
+let evColorSel = 4;
 
 // Colores personalizados de meses (header y borde), por año
 function getCalColoresMes() {
   if (!S.config.calColoresMes) S.config.calColoresMes = {};
   return S.config.calColoresMes;
+}
+
+// Preferencias de calendario (zoom, cuadrícula)
+function getCalPrefs() {
+  if (!S.config.calPrefs) S.config.calPrefs = { zoom: 100, cuadricula: false };
+  return S.config.calPrefs;
+}
+function calSetZoom(val) {
+  getCalPrefs().zoom = parseInt(val);
+  saveLocal();
+  aplicarZoomCal();
+}
+function aplicarZoomCal() {
+  const z = getCalPrefs().zoom / 100;
+  const grid = document.querySelector('.cal-anio-grid');
+  if (grid) grid.style.fontSize = z + 'em';
+}
+function calToggleCuadricula(on) {
+  getCalPrefs().cuadricula = on;
+  saveLocal();
+  const cont = document.getElementById('cal-contenido');
+  if (cont) cont.classList.toggle('cal-cuadricula', on);
 }
 
 // ── EVENTOS (datos) ──
@@ -42,7 +67,6 @@ function eventosDelDia(fechaISO) {
 
 // ── NAVEGACIÓN / VISTAS ──
 function renderCalendario() {
-  // Poblar selector de año
   const sel = document.getElementById('cal-anio-select');
   if (sel && !sel.dataset.lleno) {
     const actual = new Date().getFullYear();
@@ -52,6 +76,18 @@ function renderCalendario() {
     sel.dataset.lleno = '1';
   }
   if (sel) sel.value = calAnio;
+
+  const prefs = getCalPrefs();
+  const zoomEl = document.getElementById('cal-zoom');
+  const cuadEl = document.getElementById('cal-cuadricula');
+  if (zoomEl) zoomEl.value = prefs.zoom;
+  if (cuadEl) cuadEl.checked = prefs.cuadricula;
+
+  const ctrl = document.getElementById('cal-anio-controles');
+  if (ctrl) ctrl.style.display = (calVista === 'anio') ? 'flex' : 'none';
+
+  const cont = document.getElementById('cal-contenido');
+  if (cont) cont.classList.toggle('cal-cuadricula', prefs.cuadricula);
 
   if (calVista === 'anio') renderVistaAnio();
   else if (calVista === 'mes') renderVistaMes();
@@ -110,14 +146,16 @@ function renderVistaAnio() {
   const cont = document.getElementById('cal-contenido');
   const coloresMes = getCalColoresMes();
 
-  let html = '<div class="cal-anio-grid">';
+  let html = '<div class="cal-anio-wrap"><div class="cal-anio-main"><div class="cal-anio-grid">';
   for (let mes = 0; mes < 12; mes++) {
     const colorKey = `${calAnio}-${mes}`;
     const cfg = coloresMes[colorKey] || {};
     const borderStyle = cfg.borde ? `border-color:${cfg.borde};` : '';
     const headerStyle = cfg.header ? `background:${cfg.header};color:#fff;` : '';
+    const selClass = (calMesActual === mes) ? 'sel-mes' : '';
 
-    html += `<div class="cal-mes-box" style="${borderStyle}"
+    html += `<div class="cal-mes-box ${selClass}" style="${borderStyle}"
+      onclick="seleccionarMes(${mes})"
       oncontextmenu="event.preventDefault();calMenuColor(event,'borde',${mes})"
       ondblclick="ampliarMes(${mes})">
       <div class="cal-mes-header" style="${headerStyle}"
@@ -126,11 +164,82 @@ function renderVistaAnio() {
       ${tablaMes(calAnio, mes, true)}
     </div>`;
   }
+  html += '</div></div>';
+
+  // Panel día lateral
+  html += `<div class="cal-dia-panel ${calDiaPanelColapsado?'colapsado':''}" id="cal-dia-panel">
+    ${renderPanelDia()}
+  </div>`;
   html += '</div>';
+
   cont.innerHTML = html;
+  aplicarZoomCal();
 }
 
-// Genera la tabla de un mes (compacta para vista año, o se reusa)
+function renderPanelDia() {
+  if (!calDiaSeleccionado) {
+    return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span style="font-family:var(--font-cond);font-weight:700;font-size:14px;color:var(--text2);">Día</span>
+        <button onclick="toggleDiaPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;" title="Colapsar">»</button>
+      </div>
+      <div style="text-align:center;padding:30px 10px;color:var(--text3);font-size:12px;">Tocá un día del calendario para ver sus actividades</div>`;
+  }
+  const [a,m,d] = calDiaSeleccionado.split('-');
+  const evs = eventosDelDia(calDiaSeleccionado);
+  return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <span style="font-family:var(--font-cond);font-weight:800;font-size:16px;">${d}/${m}/${a}</span>
+      <button onclick="toggleDiaPanel()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;" title="Colapsar">»</button>
+    </div>
+    <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:10px;" onclick="abrirEventoNuevo('${calDiaSeleccionado}')"><i class="ti ti-plus"></i> Agendar actividad</button>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${evs.length ? evs.map(e => `
+        <div ondblclick="abrirEventoEditar('${e.id}')" style="background:${e.color}1a;border-left:3px solid ${e.color};border-radius:6px;padding:8px 10px;cursor:pointer;" title="Doble click para editar">
+          <div style="font-weight:700;font-size:13px;">${e.hora?`<span style="color:${e.color};">${e.hora}</span> `:''}${escHtml(e.titulo||'(sin título)')}</div>
+          ${e.desc?`<div style="font-size:11px;color:var(--text2);margin-top:2px;">${escHtml(e.desc)}</div>`:''}
+        </div>`).join('')
+      : '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">Sin actividades este día</div>'}
+    </div>`;
+}
+
+function toggleDiaPanel() {
+  calDiaPanelColapsado = !calDiaPanelColapsado;
+  const panel = document.getElementById('cal-dia-panel');
+  if (panel) panel.classList.toggle('colapsado', calDiaPanelColapsado);
+}
+
+// Seleccionar mes (click simple) → se usará al entrar a vista Mes
+function seleccionarMes(mes) {
+  calMesActual = mes;
+  calSemanaSeleccionada = null;
+  document.querySelectorAll('.cal-mes-box').forEach((box,i) => box.classList.toggle('sel-mes', i === mes));
+}
+
+// Seleccionar día (click simple) → muestra en panel lateral
+function seleccionarDia(iso, mes) {
+  calDiaSeleccionado = iso;
+  calMesActual = mes;
+  if (calDiaPanelColapsado) calDiaPanelColapsado = false;
+  // Refrescar solo el panel y marcar el día
+  const panel = document.getElementById('cal-dia-panel');
+  if (panel) { panel.classList.remove('colapsado'); panel.innerHTML = renderPanelDia(); }
+  document.querySelectorAll('.cal-mes-tabla td.dia-sel').forEach(td => td.classList.remove('dia-sel'));
+  const td = document.querySelector(`[data-iso="${iso}"]`);
+  if (td) td.classList.add('dia-sel');
+}
+
+// Seleccionar semana (click simple) → guarda la semana y su mes
+function seleccionarSemana(anio, mes, dia) {
+  calSemanaSeleccionada = { anio, mes, dia };
+  calMesActual = mes;
+  calSemanaRef = new Date(anio, mes, dia);
+  document.querySelectorAll('.cal-mes-tabla td.sel-sem').forEach(td => td.classList.remove('sel-sem'));
+  // marcar visualmente
+  if (event && event.currentTarget) event.currentTarget.classList.add('sel-sem');
+  // resaltar también el mes
+  document.querySelectorAll('.cal-mes-box').forEach((box,i) => box.classList.toggle('sel-mes', i === mes));
+}
+
+// Genera la tabla de un mes
 function tablaMes(anio, mes, compacta) {
   const primero = primerDiaSemana(anio, mes);
   const dias = diasEnMes(anio, mes);
@@ -139,12 +248,16 @@ function tablaMes(anio, mes, compacta) {
   html += '</tr></thead><tbody>';
 
   let dia = 1;
-  let semStart = new Date(anio, mes, 1);
   for (let fila = 0; fila < 6 && dia <= dias; fila++) {
-    // número de semana de la primera celda con día
     const refDia = (fila === 0) ? 1 : dia;
-    const numSem = numeroSemanaISO(new Date(anio, mes, Math.min(refDia, dias)));
-    html += `<tr><td class="sem" ondblclick="event.stopPropagation();abrirSemanaDesde(${anio},${mes},${Math.min(refDia,dias)})">${numSem}</td>`;
+    const diaSem = Math.min(refDia, dias);
+    const numSem = numeroSemanaISO(new Date(anio, mes, diaSem));
+    const semSel = calSemanaSeleccionada && calSemanaSeleccionada.anio===anio && calSemanaSeleccionada.mes===mes &&
+                   numeroSemanaISO(new Date(anio,mes,calSemanaSeleccionada.dia))===numSem;
+    html += `<tr><td class="sem ${semSel?'sel-sem':''}"
+      onclick="event.stopPropagation();seleccionarSemana(${anio},${mes},${diaSem})"
+      ondblclick="event.stopPropagation();abrirSemanaDesde(${anio},${mes},${diaSem})"
+      title="Click: seleccionar · Doble click: ver semana">${numSem}</td>`;
     for (let col = 0; col < 7; col++) {
       if ((fila === 0 && col < primero) || dia > dias) {
         html += '<td class="vacio"></td>';
@@ -152,12 +265,11 @@ function tablaMes(anio, mes, compacta) {
         const iso = fechaISO(anio, mes, dia);
         const evs = eventosDelDia(iso);
         const esHoy = iso === hoyISO();
+        const esSel = iso === calDiaSeleccionado;
         let style = '';
-        if (evs.length) {
-          // pintar con el color del primer evento
-          style = `background:${evs[0].color};color:#fff;`;
-        }
-        html += `<td class="dia ${esHoy?'hoy':''} ${evs.length?'con-evento':''}" style="${style}"
+        if (evs.length) style = `background:${evs[0].color};color:#fff;`;
+        html += `<td class="dia ${esHoy?'hoy':''} ${esSel?'dia-sel':''} ${evs.length?'con-evento':''}" data-iso="${iso}" style="${style}"
+          onclick="event.stopPropagation();seleccionarDia('${iso}',${mes})"
           ondblclick="event.stopPropagation();abrirEventoNuevo('${iso}')"
           title="${evs.map(e=>e.titulo||'(sin título)').join(', ')}">${dia}</td>`;
         dia++;
@@ -210,6 +322,8 @@ function renderVistaMes() {
 
 // ── VISTA SEMANA ──
 function abrirSemanaDesde(anio, mes, dia) {
+  calSemanaSeleccionada = { anio, mes, dia };
+  calMesActual = mes;
   calSemanaRef = new Date(anio, mes, dia);
   calSetVista('semana');
 }
@@ -265,11 +379,22 @@ function tablaSemana() {
 }
 
 function renderVistaSemana() {
+  const cont = document.getElementById('cal-contenido');
+  // Si no se seleccionó ninguna semana, no mostrar nada
+  if (!calSemanaSeleccionada) {
+    document.getElementById('cal-titulo').textContent = 'Semana';
+    cont.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text3);">
+      <i class="ti ti-calendar-week" style="font-size:48px;opacity:0.3;"></i>
+      <div style="margin-top:12px;font-size:14px;">Seleccioná una semana en la vista Año</div>
+      <div style="font-size:12px;margin-top:4px;">Tocá el número de semana (columna izquierda de cada mes)</div>
+    </div>`;
+    return;
+  }
   const lunes = lunesDeSemana(calSemanaRef);
   const dom = new Date(lunes); dom.setDate(lunes.getDate()+6);
   document.getElementById('cal-titulo').textContent =
     `${lunes.getDate()}/${lunes.getMonth()+1} - ${dom.getDate()}/${dom.getMonth()+1}`;
-  document.getElementById('cal-contenido').innerHTML = tablaSemana();
+  cont.innerHTML = tablaSemana();
 }
 
 // ── MENÚ DE COLOR (click derecho en mes/header) ──
