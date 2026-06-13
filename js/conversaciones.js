@@ -1130,11 +1130,13 @@ function pausarAudio() {
 async function enviarAudioPausado() {
   if (!audioBlob || !S.convActiva) return;
   const phone = S.convActiva.phone;
-  // Extensión según el formato real
-  const tipoReal = audioBlob.type || 'audio/webm';
+  // GUARDAR el blob en variable local ANTES de cancelar
+  // (cancelarAudio pone audioBlob = null y rompía la subida)
+  const blobAudio = audioBlob;
+  const tipoReal = blobAudio.type || 'audio/webm';
   const ext = tipoReal.includes('ogg') ? 'ogg' : tipoReal.includes('mp4') ? 'm4a' : 'webm';
   const nombre = `audio_${Date.now()}.${ext}`;
-  const urlLocal = URL.createObjectURL(audioBlob);
+  const urlLocal = URL.createObjectURL(blobAudio);
 
   const msg = {
     id:   generarId('MSG'), tipo: 'audio', url: urlLocal,
@@ -1147,8 +1149,8 @@ async function enviarAudioPausado() {
   cancelarAudio();
   showToast('Subiendo audio...', 'warn');
 
-  // Subir a R2 con el tipo correcto
-  const file = new File([audioBlob], nombre, { type: tipoReal });
+  // Subir a R2 usando el blob guardado (no el global, ya limpiado)
+  const file = new File([blobAudio], nombre, { type: tipoReal });
   const r2url = await subirArchivoR2(file);
   if (r2url) {
     msg.url = r2url;
