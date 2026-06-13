@@ -434,9 +434,10 @@ function renderMensajes(phone) {
       </div>`;
 
     let contenido = '';
-    if (m.tipo === 'texto') {
-      contenido = `${escHtml(m.editado ? m.texto + ' ✏️' : m.texto)}`;
-    } else if (m.tipo === 'imagen') {
+    if (m.tipo === 'texto' || m.tipo === 'text' || !m.tipo) {
+      const txt = m.texto || m.contenido || '';
+      contenido = `${escHtml(m.editado ? txt + ' ✏️' : txt)}`;
+    } else if (m.tipo === 'imagen' || m.tipo === 'image') {
       contenido = `<img src="${m.url}" style="max-width:220px;border-radius:6px;display:block;margin-bottom:4px;cursor:pointer;" onclick="event.stopPropagation();abrirImagenVisor('${m.url}','${(m.nombre||'imagen').replace(/'/g,'')}')" onerror="this.style.display='none'">`;
       if (m.caption) contenido += `<div style="margin-top:2px;">${escHtml(m.caption)}</div>`;
     } else if (m.tipo === 'video') {
@@ -451,7 +452,7 @@ function renderMensajes(phone) {
           <button onclick="event.stopPropagation();setAudioSpeed('${m.id}',2)" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;color:var(--text2);">2x</button>
         </div>
       </div>`;
-    } else if (m.tipo === 'documento') {
+    } else if (m.tipo === 'documento' || m.tipo === 'document') {
       contenido = `<div style="display:flex;align-items:center;gap:7px;cursor:pointer;" onclick="event.stopPropagation();window.open('${m.url}','_blank')"><i class="ti ti-file" style="font-size:20px;"></i><div><div style="font-size:12px;">${escHtml(m.nombre||'Archivo')}</div><div style="font-size:10px;opacity:0.7;">${m.mimetype||''}</div></div></div>`;
       if (m.caption) contenido += `<div style="margin-top:4px;">${escHtml(m.caption)}</div>`;
     }
@@ -489,8 +490,27 @@ function renderMensajes(phone) {
   });
 
   container.innerHTML = html;
-  // Forzar scroll al fondo (último mensaje siempre visible)
-  requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+  scrollAlFondo(container);
+}
+
+// Scroll al fondo que reintenta cuando cargan imágenes/videos
+function scrollAlFondo(container) {
+  if (!container) container = document.getElementById('chat-messages');
+  if (!container) return;
+  const bajar = () => { container.scrollTop = container.scrollHeight; };
+  // Scroll inmediato
+  requestAnimationFrame(() => { bajar(); requestAnimationFrame(bajar); });
+  // Reintentar cuando cada imagen/video termine de cargar
+  container.querySelectorAll('img, video').forEach(el => {
+    if (el.tagName === 'IMG') {
+      if (!el.complete) el.addEventListener('load', bajar, { once: true });
+    } else if (el.tagName === 'VIDEO') {
+      el.addEventListener('loadeddata', bajar, { once: true });
+      el.addEventListener('loadedmetadata', bajar, { once: true });
+    }
+  });
+  // Reintento final por las dudas (después de 600ms)
+  setTimeout(bajar, 600);
 }
 
 // ── VISOR DE IMÁGENES ──
@@ -842,8 +862,8 @@ function abrirAdjuntar() {
   if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.mp3,.ogg,.m4a,.opus';
-  input.multiple = true;  // permite seleccionar varios
+  // Aceptar CUALQUIER tipo de archivo
+  input.multiple = true;
   input.onchange = e => {
     const files = [...e.target.files];
     if (!files.length) return;
@@ -934,12 +954,14 @@ function quitarAdjunto(i) {
 }
 function agregarMasAdjuntos() {
   const input = document.createElement('input');
-  input.type = 'file'; input.accept = 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx'; input.multiple = true;
+  input.type = 'file'; input.multiple = true;
   input.onchange = e => {
     [...e.target.files].forEach(f => {
       colaAdjuntos.push({
         file: f, url: URL.createObjectURL(f),
-        tipo: f.type.startsWith('image') ? 'imagen' : f.type.startsWith('video') ? 'video' : 'documento',
+        tipo: f.type.startsWith('image') ? 'imagen' :
+              f.type.startsWith('audio') ? 'audio' :
+              f.type.startsWith('video') ? 'video' : 'documento',
         nombre: f.name, mimetype: f.type, caption: ''
       });
     });
