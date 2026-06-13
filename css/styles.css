@@ -406,6 +406,7 @@ body {
 .bubble {
   max-width: 68%; padding: 8px 12px; border-radius: 12px;
   font-size: 13px; line-height: 1.55; position: relative; word-break: break-word;
+  white-space: pre-wrap;
 }
 .bubble.in {
   background: var(--bg2); border: 1px solid var(--border);
