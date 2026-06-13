@@ -1324,6 +1324,16 @@
 <!-- Toast -->
 <style>
 /* ══ CALENDARIO ══ */
+.conv-punto-verde {
+  width:11px; height:11px; border-radius:50%; background:#25d366;
+  display:inline-block; flex-shrink:0; box-shadow:0 0 0 2px var(--bg2);
+  animation:pulsoVerde 1.6s ease-out infinite;
+}
+@keyframes pulsoVerde {
+  0%   { box-shadow:0 0 0 0 rgba(37,211,102,0.5); }
+  70%  { box-shadow:0 0 0 6px rgba(37,211,102,0); }
+  100% { box-shadow:0 0 0 0 rgba(37,211,102,0); }
+}
 .cal-vista-btn {
   border:none; background:none; padding:7px 16px; border-radius:8px;
   font-family:var(--font-cond); font-weight:700; font-size:13px; cursor:pointer;
