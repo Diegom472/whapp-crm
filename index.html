@@ -411,7 +411,9 @@
           <span class="pend-title">Pendientes</span>
           <button class="mini-btn btn-xs" onclick="abrirPendientesAdmin()" title="Ver pendientes de otros operadores" style="padding:3px 7px;"><i class="ti ti-users" style="font-size:12px;"></i></button>
         </div>
-        <div class="pend-inner" id="pend-inner"></div>
+        <div class="pend-inner" id="pend-inner"
+          ondragover="event.preventDefault();"
+          ondrop="dropEnContenedorPend(event)"></div>
       </div>
     </div>
 
@@ -548,6 +550,52 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <h1 style="font-family:var(--font-cond);font-weight:900;font-size:22px;text-transform:uppercase;">Administración</h1>
         <button class="btn btn-secondary btn-sm" onclick="activarModoEdicion()"><i class="ti ti-pencil"></i> Modo edición</button>
+      </div>
+
+      <!-- Hora y Fecha -->
+      <div class="admin-card">
+        <div class="admin-card-hdr" onclick="toggleAdminCard('horafecha')">
+          <span class="admin-card-title"><i class="ti ti-clock" style="color:var(--blue)"></i> Hora y Fecha</span>
+          <i class="ti ti-chevron-down"></i>
+        </div>
+        <div class="admin-card-body" id="body-admin-horafecha">
+          <div class="form-grid" style="margin-top:12px;">
+            <div class="form-group">
+              <label class="form-label">Zona horaria</label>
+              <select class="form-select" id="cfg-timezone">
+                <option value="America/Argentina/Buenos_Aires">Argentina (GMT-3)</option>
+                <option value="America/Argentina/Cordoba">Córdoba (GMT-3)</option>
+                <option value="America/Santiago">Chile (GMT-3/-4)</option>
+                <option value="America/Montevideo">Uruguay (GMT-3)</option>
+                <option value="America/Sao_Paulo">Brasil/São Paulo (GMT-3)</option>
+                <option value="America/Asuncion">Paraguay (GMT-3/-4)</option>
+                <option value="America/La_Paz">Bolivia (GMT-4)</option>
+                <option value="America/Lima">Perú (GMT-5)</option>
+                <option value="America/Bogota">Colombia (GMT-5)</option>
+                <option value="America/Mexico_City">México (GMT-6)</option>
+                <option value="America/New_York">EE.UU. Este (GMT-5/-4)</option>
+                <option value="Europe/Madrid">España (GMT+1/+2)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Formato de hora</label>
+              <select class="form-select" id="cfg-hora-formato">
+                <option value="24">24 horas (14:30)</option>
+                <option value="12">12 horas (2:30 PM)</option>
+              </select>
+            </div>
+            <div class="form-group full">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" id="cfg-hora-auto" checked style="width:16px;height:16px;accent-color:var(--accent);">
+                Actualización automática de la hora (usar reloj del sistema)
+              </label>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="guardarConfigHora()"><i class="ti ti-device-floppy"></i> Guardar</button>
+            <span id="hora-preview" style="font-size:13px;color:var(--text2);align-self:center;"></span>
+          </div>
+        </div>
       </div>
 
       <!-- WhatsApp API -->
@@ -1324,6 +1372,8 @@
 <!-- Toast -->
 <style>
 /* ══ CALENDARIO ══ */
+.msg-tilde { margin-left: 5px; font-size: 11px; opacity: 0.8; }
+.msg-tilde.leido { color: #53bdeb; opacity: 1; }
 .conv-punto-verde {
   width:11px; height:11px; border-radius:50%; background:#25d366;
   display:inline-block; flex-shrink:0; box-shadow:0 0 0 2px var(--bg2);
@@ -1353,15 +1403,15 @@
 }
 .cal-mes-box.sel-mes { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
 .cal-mes-header {
-  text-align:center; font-family:var(--font-cond); font-weight:800; font-size:16px;
+  text-align:center; font-family:var(--font-cond); font-weight:800; font-size:1.15em;
   padding:4px; border-radius:8px; cursor:pointer; margin-bottom:6px;
 }
 .cal-mes-tabla { width:100%; border-collapse:collapse; }
 .cal-mes-tabla th {
-  font-size:9px; color:var(--text3); font-weight:700; padding:2px; text-align:center;
+  font-size: 0.69em; color:var(--text3); font-weight:700; padding:2px; text-align:center;
 }
 .cal-mes-tabla td {
-  font-size:10px; text-align:center; padding:2px; height:18px; cursor:pointer;
+  font-size: 0.77em; text-align:center; padding:2px; height:1.4em; cursor:pointer;
   border-radius:4px; position:relative;
 }
 .cal-mes-tabla td.dia:hover { background:var(--bg3); }
