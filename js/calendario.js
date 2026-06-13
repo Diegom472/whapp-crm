@@ -46,7 +46,15 @@ function calSetZoom(val) {
 function aplicarZoomCal() {
   const z = getCalPrefs().zoom / 100;
   const grid = document.querySelector('.cal-anio-grid');
-  if (grid) grid.style.fontSize = z + 'em';
+  if (grid) {
+    let cols = 4;
+    if (z <= 0.85) cols = 5;
+    else if (z <= 1.15) cols = 4;
+    else if (z <= 1.35) cols = 3;
+    else cols = 2;
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.fontSize = z + 'em';
+  }
 }
 function calToggleCuadricula(on) {
   getCalPrefs().cuadricula = on;
@@ -292,14 +300,22 @@ function ampliarMes(mes) {
 function mesGrande(anio, mes) {
   const primero = primerDiaSemana(anio, mes);
   const dias = diasEnMes(anio, mes);
-  let html = '<table class="cal-mes-grande"><thead><tr>';
+  let html = '<table class="cal-mes-grande"><thead><tr><th style="width:36px;">Sem</th>';
   DIAS_SEM.forEach(d => html += `<th>${d}</th>`);
-  html += '</tr></thead><tbody><tr>';
+  html += '</tr></thead><tbody>';
 
+  // Helper para abrir la fila con su número de semana
+  let diaParaSemana = 1;
+  const abrirFila = (primerDiaDeFila) => {
+    const numSem = numeroSemanaISO(new Date(anio, mes, Math.min(primerDiaDeFila, dias)));
+    return `<tr><td class="cal-sem-col" onclick="seleccionarSemana(${anio},${mes},${Math.min(primerDiaDeFila,dias)})" ondblclick="abrirSemanaDesde(${anio},${mes},${Math.min(primerDiaDeFila,dias)})" style="background:rgba(128,128,128,0.12);font-size:11px;color:var(--text3);font-weight:700;text-align:center;cursor:pointer;vertical-align:middle;">${numSem}</td>`;
+  };
+
+  html += abrirFila(1);
   for (let i = 0; i < primero; i++) html += '<td class="vacio"></td>';
   let col = primero;
   for (let dia = 1; dia <= dias; dia++) {
-    if (col === 7) { html += '</tr><tr>'; col = 0; }
+    if (col === 7) { html += '</tr>' + abrirFila(dia); col = 0; }
     const iso = fechaISO(anio, mes, dia);
     const evs = eventosDelDia(iso);
     const esHoy = iso === hoyISO();

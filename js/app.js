@@ -1094,3 +1094,57 @@ function sonidoNotificacion() {
     console.warn('No se pudo reproducir sonido de notificación:', e);
   }
 }
+
+// ════════════════════════════════════════════
+//  HORA Y FECHA (config de zona horaria y formato)
+// ════════════════════════════════════════════
+function getCfgHora() {
+  if (!S.config.hora) S.config.hora = { timezone: 'America/Argentina/Cordoba', formato: '24', auto: true };
+  return S.config.hora;
+}
+
+// Formatea un timestamp respetando zona horaria y formato configurados
+function formatHora(ts) {
+  const cfg = getCfgHora();
+  const opts = { hour: '2-digit', minute: '2-digit', hour12: cfg.formato === '12' };
+  if (cfg.timezone) opts.timeZone = cfg.timezone;
+  try {
+    return new Date(ts).toLocaleTimeString('es-AR', opts);
+  } catch(e) {
+    return new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  }
+}
+
+function formatFecha(ts) {
+  const cfg = getCfgHora();
+  const opts = { day: '2-digit', month: '2-digit', year: 'numeric' };
+  if (cfg.timezone) opts.timeZone = cfg.timezone;
+  try {
+    return new Date(ts).toLocaleDateString('es-AR', opts);
+  } catch(e) {
+    return new Date(ts).toLocaleDateString('es-AR');
+  }
+}
+
+function guardarConfigHora() {
+  const cfg = getCfgHora();
+  cfg.timezone = document.getElementById('cfg-timezone').value;
+  cfg.formato  = document.getElementById('cfg-hora-formato').value;
+  cfg.auto     = document.getElementById('cfg-hora-auto').checked;
+  saveLocal();
+  const prev = document.getElementById('hora-preview');
+  if (prev) prev.textContent = 'Hora actual: ' + formatHora(Date.now());
+  showToast('Configuración de hora guardada');
+}
+
+function cargarConfigHora() {
+  const cfg = getCfgHora();
+  const tz = document.getElementById('cfg-timezone');
+  const fm = document.getElementById('cfg-hora-formato');
+  const au = document.getElementById('cfg-hora-auto');
+  if (tz) tz.value = cfg.timezone;
+  if (fm) fm.value = cfg.formato;
+  if (au) au.checked = cfg.auto !== false;
+  const prev = document.getElementById('hora-preview');
+  if (prev) prev.textContent = 'Hora actual: ' + formatHora(Date.now());
+}

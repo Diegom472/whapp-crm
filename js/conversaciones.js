@@ -33,7 +33,7 @@ function buildConvItem(c) {
   const badge = c.unread ? `<span class="conv-badge">${c.unread}</span>` : '';
   const puntoVerde = c.unread ? `<span class="conv-punto-verde" title="Mensaje nuevo"></span>` : '';
   const lastMsg = (c.lastMsg || '').slice(0, 34) + ((c.lastMsg||'').length > 34 ? '...' : '');
-  const hora = c.lastTs ? new Date(c.lastTs).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
+  const hora = c.lastTs ? formatHora(c.lastTs) : '';
 
   // Mini-etiquetas en el item
   const etiquetas = (c.etiquetas||[]).slice(0,3).map(et => {
@@ -419,7 +419,7 @@ function renderMensajes(phone) {
       html += `<div class="msg-day">${d === new Date().toLocaleDateString('es-AR') ? 'Hoy' : d}</div>`;
       lastDate = d;
     }
-    const hora = new Date(m.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    const hora = formatHora(m.ts);
     const cls  = m.dir === 'out' ? 'out' : 'in';
     const selClass = modoReenvio && msgsSeleccionados.has(m.id) ? 'msg-selected' : '';
 
@@ -473,17 +473,27 @@ function renderMensajes(phone) {
 
     const checkBox = modoReenvio ? `<input type="checkbox" class="msg-check" ${msgsSeleccionados.has(m.id)?'checked':''} onclick="event.stopPropagation();toggleMsgSeleccion('${m.id}',this.checked)" style="accent-color:var(--accent);width:18px;height:18px;flex-shrink:0;">` : '';
 
+    // Tilde de estado (solo salientes): ✓ enviado / ✓✓ entregado-recibido
+    const estado = m.estado || (m.dir === 'out' ? 'enviado' : '');
+    let tildeHtml = '';
+    if (m.dir === 'out') {
+      if (estado === 'leido') tildeHtml = `<span class="msg-tilde leido" title="Leído">✓✓</span>`;
+      else if (estado === 'entregado') tildeHtml = `<span class="msg-tilde" title="Entregado">✓✓</span>`;
+      else tildeHtml = `<span class="msg-tilde" title="Enviado">✓</span>`;
+    }
+    const horaConTilde = `${hora}${tildeHtml}`;
+
     if (modoReenvio) {
       // En modo reenvío: checkbox + burbuja en fila, sin acciones hover
       html += `<div class="msg-row ${cls} ${selClass}" id="msg-${m.id}" style="cursor:pointer;flex-direction:row;align-items:center;gap:8px;${cls==='out'?'justify-content:flex-end;':''}" onclick="toggleMsgSeleccion('${m.id}',!msgsSeleccionados.has('${m.id}'))">
         ${cls==='in' ? checkBox : ''}
-        <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${hora}</div></div>
+        <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${horaConTilde}</div></div>
         ${cls==='out' ? checkBox : ''}
       </div>`;
     } else {
       // Modo normal: burbuja + acciones debajo
       html += `<div class="msg-row ${cls} ${selClass}" id="msg-${m.id}">
-        <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${hora}</div></div>
+        <div class="bubble ${cls}">${citado}${contenido}<div class="bubble-time">${horaConTilde}</div></div>
         ${acciones}
       </div>`;
     }
@@ -786,7 +796,17 @@ function enviarMensaje() {
   input.style.height = 'auto';
   input.placeholder = 'Escribí un mensaje...';
 
-  enviarPorWhatsApp(S.convActiva.phone, texto, 'text');
+  // Si responde a un mensaje entrante, pasar el wamid para que Meta lo muestre como respuesta
+  let replyWamid = null;
+  if (msg.replyTo) {
+    const orig = (S.mensajesCache[S.convActiva.phone]||[]).find(x => x.id === msg.replyTo);
+    // Los entrantes tienen id tipo "wamid...."; solo esos sirven para el context de Meta
+    if (orig && typeof orig.id === 'string' && orig.id.startsWith('wamid')) {
+      replyWamid = orig.id;
+    }
+  }
+
+  enviarPorWhatsApp(S.convActiva.phone, texto, 'text', { replyWamid });
   saveToFirebase('crmw_conversaciones', S.conversaciones);
   guardarMensajes(S.convActiva.phone);
   renderConvList();
@@ -832,6 +852,11 @@ async function enviarPorWhatsApp(phone, contenido, tipo, extra) {
     payload = { to, type: 'document', link: contenido, filename: extra?.filename || 'archivo' };
   } else {
     payload = { to, text: contenido };
+  }
+
+  // Si es una respuesta a un mensaje entrante, agregar el context para Meta
+  if (extra?.replyWamid) {
+    payload.context = { message_id: extra.replyWamid };
   }
 
   try {
@@ -925,12 +950,21 @@ function renderVisorComposicion() {
     </div>`;
   }).join('');
 
+  const hayImagen = colaAdjuntos.some(x => x.tipo === 'imagen');
+  const toggleCalidad = hayImagen ? `
+    <label style="display:flex;align-items:center;gap:8px;justify-content:center;color:#fff;font-size:13px;cursor:pointer;margin-bottom:4px;">
+      <input type="checkbox" ${window.calidadAltaImagen?'checked':''} onchange="window.calidadAltaImagen=this.checked"
+        style="width:16px;height:16px;accent-color:var(--accent);">
+      Enviar en alta calidad (para imágenes con texto)
+    </label>` : '';
+
   visor.innerHTML = `
     <div style="position:absolute;top:16px;right:20px;">
       <button onclick="cerrarVisorComposicion()" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer;">✕</button>
     </div>
     <div style="flex:1;display:flex;align-items:center;justify-content:center;">${previewHTML}</div>
     <div style="width:100%;max-width:600px;display:flex;flex-direction:column;gap:12px;">
+      ${toggleCalidad}
       <div style="display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:24px;padding:6px 8px 6px 16px;">
         <input id="adjunto-caption" type="text" value="${escHtml(a.caption||'')}"
           oninput="guardarCaptionActivo(this.value)"
@@ -976,13 +1010,13 @@ function cerrarVisorComposicion() {
 }
 
 // Comprime una imagen antes de subirla (reduce peso y tiempo de subida)
-async function comprimirImagen(file) {
-  // Solo imágenes; otros tipos pasan sin tocar
+// modoAlta=true → conserva resolución alta y calidad casi original (para imágenes con texto)
+async function comprimirImagen(file, modoAlta) {
   if (!file.type.startsWith('image/')) return file;
   try {
     const bitmap = await createImageBitmap(file);
-    // Redimensionar si es muy grande (máx 1600px de lado mayor)
-    const maxLado = 1600;
+    const maxLado = modoAlta ? 2600 : 1600;
+    const calidad = modoAlta ? 0.95 : 0.82;
     let { width, height } = bitmap;
     if (width > maxLado || height > maxLado) {
       const escala = maxLado / Math.max(width, height);
@@ -993,7 +1027,7 @@ async function comprimirImagen(file) {
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(bitmap, 0, 0, width, height);
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.82));
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', calidad));
     if (!blob) return file;
     return new File([blob], (file.name||'imagen').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
   } catch(e) {
@@ -1041,7 +1075,7 @@ async function enviarTodaLaCola() {
     // 1) Comprimir si es imagen, luego subir a R2
     let urlPermanente = a.url; // fallback al blob si falla
     if (a.file) {
-      const fileFinal = await comprimirImagen(a.file);
+      const fileFinal = await comprimirImagen(a.file, !!window.calidadAltaImagen);
       const r2url = await subirArchivoR2(fileFinal);
       if (r2url) urlPermanente = r2url;
     }
@@ -2392,13 +2426,44 @@ function dropNodal(e, el) {
   e.preventDefault();
   document.querySelectorAll('.nodal').forEach(n => { n.classList.remove('drag-over'); n.classList.remove('dragging'); });
   if (dragSrcNodal && dragSrcNodal !== el) {
-    const container = document.getElementById('pend-inner');
-    const nodes = [...container.querySelectorAll('.nodal')];
-    const srcIdx = nodes.indexOf(dragSrcNodal);
-    const dstIdx = nodes.indexOf(el);
-    if (srcIdx < dstIdx) el.after(dragSrcNodal);
-    else el.before(dragSrcNodal);
+    // Decidir antes/después según la posición vertical del cursor dentro del nodal destino
+    const rect = el.getBoundingClientRect();
+    const mitad = rect.top + rect.height / 2;
+    if (e.clientY < mitad) {
+      el.before(dragSrcNodal);   // soltar en la mitad superior → va ANTES (puede quedar primero)
+    } else {
+      el.after(dragSrcNodal);    // mitad inferior → va DESPUÉS
+    }
+    guardarOrdenNodales();
   }
+  dragSrcNodal = null;
+}
+
+// Guarda el orden actual de los nodales (por si se quiere persistir)
+function guardarOrdenNodales() {
+  const container = document.getElementById('pend-inner');
+  if (!container) return;
+  const orden = [...container.querySelectorAll('.nodal')].map(n => n.dataset.id);
+  S.config.ordenNodales = orden;
+  saveLocal();
+}
+
+// Drop directo en el contenedor (cuando se suelta fuera de un nodal puntual)
+function dropEnContenedorPend(e) {
+  e.preventDefault();
+  if (!dragSrcNodal) return;
+  const container = document.getElementById('pend-inner');
+  const nodos = [...container.querySelectorAll('.nodal')].filter(n => n !== dragSrcNodal);
+  // Buscar el primer nodal cuyo centro esté por debajo del cursor
+  let insertarAntesDe = null;
+  for (const n of nodos) {
+    const rect = n.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) { insertarAntesDe = n; break; }
+  }
+  if (insertarAntesDe) container.insertBefore(dragSrcNodal, insertarAntesDe);
+  else container.appendChild(dragSrcNodal);
+  document.querySelectorAll('.nodal').forEach(n => { n.classList.remove('drag-over'); n.classList.remove('dragging'); });
+  guardarOrdenNodales();
   dragSrcNodal = null;
 }
 

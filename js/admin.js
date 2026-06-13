@@ -407,6 +407,7 @@ function renderAdmin() {
   renderDriveCuentas();
   renderUsuariosList();
   cargarConfigAdmin();
+  if (typeof cargarConfigHora === 'function') cargarConfigHora();
 }
 
 function cargarConfigAdmin() {
