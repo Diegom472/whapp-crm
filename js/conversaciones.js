@@ -31,6 +31,7 @@ function buildConvItem(c) {
   const initials = obtenerIniciales(c.nombre || c.phone);
   const avClass = colorAvatar(c.phone);
   const badge = c.unread ? `<span class="conv-badge">${c.unread}</span>` : '';
+  const puntoVerde = c.unread ? `<span class="conv-punto-verde" title="Mensaje nuevo"></span>` : '';
   const lastMsg = (c.lastMsg || '').slice(0, 34) + ((c.lastMsg||'').length > 34 ? '...' : '');
   const hora = c.lastTs ? new Date(c.lastTs).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
 
@@ -52,7 +53,10 @@ function buildConvItem(c) {
     </div>
     <div class="conv-meta">
       <span class="conv-time">${hora}</span>
-      ${badge}
+      <div style="display:flex;align-items:center;gap:5px;">
+        ${badge}
+        ${puntoVerde}
+      </div>
     </div>
   </div>`;
 }

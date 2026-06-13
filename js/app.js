@@ -130,6 +130,13 @@ function suscribirFirebase() {
         }
       } catch(e) {}
     }
+    // ── MENSAJES ENTRANTES (escritos por el Worker) ──
+    if (data.crmw_entrantes) {
+      try {
+        const entrantes = JSON.parse(data.crmw_entrantes);
+        procesarMensajesEntrantes(entrantes);
+      } catch(e) {}
+    }
     // Refrescar UI si está montada
     if (S.usuario) {
       renderConvList();
@@ -983,3 +990,107 @@ document.addEventListener('DOMContentLoaded', () => {
 
   applyTheme();
 });
+
+// ════════════════════════════════════════════
+//  MENSAJES ENTRANTES (recibidos de clientes vía Worker)
+// ════════════════════════════════════════════
+
+// IDs de entrantes ya procesados (para no repetir sonido/badge)
+let _entrantesVistos = new Set();
+let _entrantesInicializado = false;
+
+function procesarMensajesEntrantes(entrantes) {
+  // entrantes es un objeto { phone: [ {id, tipo, contenido, ts, ...}, ... ] }
+  if (!entrantes || typeof entrantes !== 'object') return;
+
+  let huboNuevo = false;
+
+  Object.keys(entrantes).forEach(phone => {
+    const lista = entrantes[phone] || [];
+    if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
+
+    lista.forEach(m => {
+      // ¿Ya está en el cache?
+      const yaExiste = S.mensajesCache[phone].some(x => x.id === m.id);
+      if (yaExiste) return;
+
+      // Agregar el mensaje entrante al cache
+      S.mensajesCache[phone].push({
+        id: m.id,
+        tipo: m.tipo || 'text',
+        texto: m.texto || m.contenido || '',
+        url: m.url || '',
+        nombre: m.nombre || '',
+        caption: m.caption || '',
+        dir: 'in',           // entrante
+        ts: m.ts || Date.now(),
+        operador: null
+      });
+
+      // Buscar o crear la conversación
+      let conv = S.conversaciones.find(c => c.phone === phone);
+      if (!conv) {
+        conv = { phone, nombre: m.nombreContacto || phone, lastMsg: '', lastTs: 0, unread: 0, etiquetas: [] };
+        S.conversaciones.unshift(conv);
+      }
+
+      // Actualizar la conversación: subir al tope, marcar no leído
+      conv.lastMsg = m.texto || m.contenido || (m.tipo === 'image' ? '📷 Foto' : m.tipo === 'audio' ? '🎤 Audio' : m.tipo === 'video' ? '🎬 Video' : '📎 Archivo');
+      conv.lastTs = m.ts || Date.now();
+
+      // Si NO es la conversación abierta, marcar como no leído
+      if (!S.convActiva || S.convActiva.phone !== phone) {
+        conv.unread = (conv.unread || 0) + 1;
+        // Solo suena si ya estábamos inicializados (evita sonar al cargar la página)
+        if (_entrantesInicializado && !_entrantesVistos.has(m.id)) {
+          huboNuevo = true;
+        }
+      }
+      _entrantesVistos.add(m.id);
+    });
+  });
+
+  if (huboNuevo) {
+    sonidoNotificacion();
+  }
+
+  _entrantesInicializado = true;
+
+  // Reordenar conversaciones (más reciente arriba) y refrescar
+  if (S.usuario) {
+    renderConvList();
+    // Si la conversación activa recibió mensaje, refrescar el chat
+    if (S.convActiva && S.mensajesCache[S.convActiva.phone]) {
+      renderMensajes(S.convActiva.phone);
+      const cont = document.getElementById('chat-messages');
+      if (cont) cont.scrollTop = cont.scrollHeight;
+    }
+  }
+}
+
+// Sonido de notificación (tono corto generado, sin archivo externo)
+function sonidoNotificacion() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Dos tonos cortos tipo "ding-dong" suave
+    const ahora = ctx.currentTime;
+    [880, 1180].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const t = ahora + i * 0.14;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    });
+    // Cerrar el contexto al terminar
+    setTimeout(() => { try { ctx.close(); } catch(e) {} }, 800);
+  } catch(e) {
+    console.warn('No se pudo reproducir sonido de notificación:', e);
+  }
+}
