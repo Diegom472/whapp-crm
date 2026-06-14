@@ -1134,14 +1134,14 @@ function iniciarAudio() {
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     audioChunks = []; recSeconds = 0; recPaused = false;
 
-    // Detectar el formato que realmente soporta este navegador
-    // Priorizar mp4 (más compatible para reproducir) sobre webm
+    // Grabar en webm/opus (soportado por todos los navegadores modernos).
+    // El audio YA es Opus; antes de enviar se remuxea a OGG/Opus para que
+    // WhatsApp lo muestre como nota de voz. Si el navegador soporta ogg nativo, mejor.
     const formatos = [
-      'audio/mp4',
-      'audio/mp4;codecs=mp4a.40.2',
+      'audio/ogg;codecs=opus',
       'audio/webm;codecs=opus',
       'audio/webm',
-      'audio/ogg;codecs=opus'
+      'audio/mp4'
     ];
     recMimeType = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
 
@@ -1191,34 +1191,55 @@ async function enviarAudioPausado() {
   if (!audioBlob || !S.convActiva) return;
   const phone = S.convActiva.phone;
   // GUARDAR el blob en variable local ANTES de cancelar
-  // (cancelarAudio pone audioBlob = null y rompía la subida)
-  const blobAudio = audioBlob;
-  const tipoReal = blobAudio.type || 'audio/webm';
-  const ext = tipoReal.includes('ogg') ? 'ogg' : tipoReal.includes('mp4') ? 'm4a' : 'webm';
-  const nombre = `audio_${Date.now()}.${ext}`;
-  const urlLocal = URL.createObjectURL(blobAudio);
+  let blobAudio = audioBlob;
+  let tipoReal = blobAudio.type || 'audio/webm';
 
+  const urlLocal = URL.createObjectURL(blobAudio);
   const msg = {
     id:   generarId('MSG'), tipo: 'audio', url: urlLocal,
-    nombre, mimetype: tipoReal, dir: 'out',
+    nombre: 'audio.ogg', mimetype: 'audio/ogg', dir: 'out',
     ts: Date.now(), operador: S.usuario?.nombre
   };
   if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
   S.mensajesCache[phone].push(msg);
   renderMensajes(phone);
   cancelarAudio();
+  showToast('Procesando audio...', 'warn');
+
+  // Convertir a OGG/Opus para que WhatsApp lo muestre como nota de voz.
+  // Si ya es ogg, se usa tal cual. Si es webm/opus, se remuxea (liviano).
+  let blobFinal = blobAudio;
+  if (!tipoReal.includes('ogg')) {
+    try {
+      if (typeof webmBlobToOggBlob === 'function' && tipoReal.includes('webm')) {
+        blobFinal = await webmBlobToOggBlob(blobAudio, 1);
+      }
+    } catch(e) {
+      console.warn('No se pudo remuxear a ogg, se envía como estaba:', e);
+      blobFinal = blobAudio;
+    }
+  }
+  const nombre = `audio_${Date.now()}.ogg`;
   showToast('Subiendo audio...', 'warn');
 
-  // Subir a R2 usando el blob guardado (no el global, ya limpiado)
-  const file = new File([blobAudio], nombre, { type: tipoReal });
+  const file = new File([blobFinal], nombre, { type: 'audio/ogg' });
   const r2url = await subirArchivoR2(file);
   if (r2url) {
     msg.url = r2url;
+    msg.nombre = nombre;
     renderMensajes(phone);
-    await enviarPorWhatsApp(phone, r2url, 'audio');
+    const resp = await enviarPorWhatsApp(phone, r2url, 'audio');
+    if (resp && resp.error) {
+      const motivo = resp.error.message || resp.error.error_data?.details || 'formato no aceptado';
+      showToast('El audio se guardó pero WhatsApp lo rechazó: ' + motivo, 'error');
+      console.error('Meta rechazó el audio:', JSON.stringify(resp.error));
+    } else {
+      showToast('Audio enviado');
+    }
+  } else {
+    showToast('No se pudo subir el audio', 'error');
   }
   guardarMensajes(phone);
-  showToast('Audio enviado');
 }
 
 function cancelarAudio() {
@@ -1256,12 +1277,11 @@ function abrirBuscarEnChat() { buscarEnChat(); }
 function cargarPanelContacto(conv) {
   if (!conv) return;
 
-  // Buscar cliente en Firebase por WhatsApp
-  const phone = normalizarTelefono(conv.phone);
-  const cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  // Buscar cliente en Firebase por WhatsApp (comparación flexible de teléfonos)
+  const cliente = S.clientes.find(c => mismoTelefono(c.whatsapp || '', conv.phone));
 
-  // Avatar y nombre
-  const nombre = conv.nombre || (cliente ? `${cliente.firstName} ${cliente.lastName}` : conv.phone);
+  // Avatar y nombre — priorizar el del cliente de CRMH si existe
+  const nombre = (cliente ? (cliente.nombre || `${cliente.firstName||''} ${cliente.lastName||''}`.trim()) : '') || conv.nombre || conv.phone;
   const initials = obtenerIniciales(nombre);
   const avClass = colorAvatar(conv.phone);
 
@@ -1275,25 +1295,36 @@ function cargarPanelContacto(conv) {
   const busq = S.busquedas.find(b => b.phone === conv.phone && !b.terminada);
   tagsEl.innerHTML = busq?.tipo ? `<span class="tag tag-gamer">${escHtml(busq.tipo)}</span>` : '';
 
-  // Cargar datos del cliente si existe
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? '—'; };
+
+  // Cargar TODOS los datos del cliente si existe (estructura CRMH completa)
   if (cliente) {
-    document.getElementById('c-nombre').value     = cliente.firstName || '';
-    document.getElementById('c-apellido').value   = cliente.lastName  || '';
-    document.getElementById('c-dni').value        = cliente.dni       || '';
-    document.getElementById('c-domicilio').value  = cliente.domicilio || '';
-    document.getElementById('c-localidad').value  = cliente.localidad || 'Córdoba';
-    document.getElementById('c-provincia').value  = cliente.provincia || 'Córdoba';
-    document.getElementById('c-cp').value         = cliente.cp        || '5000';
-    document.getElementById('c-metaid').textContent = cliente.metaId  || '—';
-    if (cliente.iva) document.getElementById('c-iva').value = cliente.iva;
+    set('c-nombre',    cliente.firstName || (cliente.nombre||'').split(' ')[0] || '');
+    set('c-apellido',  cliente.lastName  || (cliente.nombre||'').split(' ').slice(1).join(' ') || '');
+    set('c-dni',       cliente.dni);
+    set('c-domicilio', cliente.domicilio);
+    set('c-localidad', cliente.localidad || 'Córdoba');
+    set('c-provincia', cliente.provincia || 'Córdoba');
+    set('c-cp',        cliente.cp || '5000');
+    set('c-email',     cliente.email);
+    set('c-contacto',  cliente.contacto);
+    setTxt('c-metaid', cliente.metaId || '—');
+    const ivaEl = document.getElementById('c-iva');
+    if (ivaEl && cliente.iva) ivaEl.value = cliente.iva;
+    const canalEl = document.getElementById('c-canal');
+    if (canalEl && cliente.canal) canalEl.value = cliente.canal;
+    // Guardar referencia al id del cliente para historial
+    conv._clienteId = cliente.id;
   } else {
-    // Precarga desde perfil WhatsApp
-    document.getElementById('c-nombre').value = conv.nombre || '';
-    document.getElementById('c-apellido').value = '';
-    document.getElementById('c-localidad').value = 'Córdoba';
-    document.getElementById('c-provincia').value = 'Córdoba';
-    document.getElementById('c-cp').value = '5000';
-    document.getElementById('c-metaid').textContent = conv.metaId || '—';
+    // Sin cliente: precargar desde perfil WhatsApp
+    set('c-nombre', conv.nombre || '');
+    set('c-apellido', '');
+    set('c-dni', ''); set('c-domicilio', '');
+    set('c-localidad', 'Córdoba'); set('c-provincia', 'Córdoba'); set('c-cp', '5000');
+    set('c-email', ''); set('c-contacto', '');
+    setTxt('c-metaid', conv.metaId || '—');
+    conv._clienteId = null;
   }
 
   // Cargar búsqueda actual (borrador)
@@ -1557,7 +1588,7 @@ function actualizarCliente() {
   const datos = obtenerDatosFormCliente();
   const phone = normalizarTelefono(datos.whatsapp);
 
-  let cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  let cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
   if (cliente) {
     Object.assign(cliente, datos);
     saveToFirebase('clientes', S.clientes);
@@ -1605,7 +1636,7 @@ async function agendarContacto() {
   datos.nombre    = nombreFinal;
 
   const phone = normalizarTelefono(datos.whatsapp);
-  let cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  let cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
   if (!cliente) {
     S.clientes.push(datos);
   } else {
@@ -1633,7 +1664,7 @@ async function agendarContacto() {
 function editarContactoGoogle() {
   if (!S.convActiva) return;
   const phone   = normalizarTelefono(S.convActiva.phone);
-  const cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
   const conv    = S.conversaciones.find(c => c.phone === S.convActiva.phone);
   const idConsulta = conv?.idConsulta || S.convActiva.idConsulta || '—';
 
@@ -1671,7 +1702,7 @@ async function guardarEdicionContacto() {
   }
 
   // Actualizar o crear cliente en Firebase
-  let cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  let cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
   const datosNuevos = {
     firstName: nombreN,
     lastName:  apellidoN,
@@ -1735,7 +1766,7 @@ async function enviarEventoLead() {
   const importe = document.getElementById('lead-importe').value;
 
   const phone = normalizarTelefono(S.convActiva.phone);
-  const cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
 
   const ud = await buildUserData(cliente || { whatsapp: S.convActiva.phone, firstName: nombre.split(' ')[0] });
   const busq = S.busquedas.find(b => b.phone === S.convActiva.phone && !b.terminada);
@@ -1759,17 +1790,20 @@ async function enviarEventoLead() {
 function renderComprobantes(phone) {
   const container = document.getElementById('comp-list');
   if (!container) return;
-  const comprobantes = S.eventos.filter(e => {
-    const cliente = S.clientes.find(c => c.id === e.clienteId);
-    return cliente && normalizarTelefono(cliente.whatsapp||'') === phone;
-  });
+  // Buscar el cliente de esta conversación (match flexible)
+  const convPhone = S.convActiva?.phone || phone;
+  const cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', convPhone));
+  // Mostrar TODOS los eventos del cliente (compras, servicios, documentos, pedidos)
+  const comprobantes = cliente
+    ? S.eventos.filter(e => e.clienteId === cliente.id)
+    : [];
   if (!comprobantes.length) {
     container.innerHTML = `<div style="text-align:center;padding:14px;color:var(--text3);font-size:12px;">Sin comprobantes</div>`;
     return;
   }
   container.innerHTML = comprobantes.sort((a,b) => (b.timestamp||0)-(a.timestamp||0)).map(e => `
     <div class="comp-item" onclick="verComprobante('${e.id}')">
-      <div class="comp-item-type ${e.tipo.toLowerCase()}">${e.tipo}</div>
+      <div class="comp-item-type ${(e.tipo||'').toLowerCase()}">${e.tipo}</div>
       <div class="comp-item-name">${escHtml(e.nombre||'')}</div>
       <div class="comp-item-meta">${e.fecha} · ${e.id}</div>
     </div>`).join('');
@@ -1909,7 +1943,7 @@ function setAbona(pct) {
 async function guardarVenta(tipo, id) {
   if (!S.convActiva) return;
   const phone    = normalizarTelefono(S.convActiva.phone);
-  const cliente  = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const cliente  = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
   if (!cliente) { showToast('Primero guardá los datos del cliente', 'error'); return; }
 
   const items = [];
@@ -1977,7 +2011,7 @@ async function guardarYEnviar(tipo, id) {
   await guardarVenta(tipo, id);
   if (!S.convActiva) return;
   const phone    = normalizarTelefono(S.convActiva.phone);
-  const cliente  = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const cliente  = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
   const evento   = S.eventos.find(e => e.id === id);
   if (!evento) return;
 
@@ -2001,7 +2035,7 @@ async function guardarYEnviar(tipo, id) {
 async function marcarPedidoListo() {
   if (!S.convActiva) return;
   const phone   = normalizarTelefono(S.convActiva.phone);
-  const cliente = S.clientes.find(c => normalizarTelefono(c.whatsapp||'') === phone);
+  const cliente = S.clientes.find(c => mismoTelefono(c.whatsapp||'', S.convActiva?.phone||phone));
 
   // Buscar último evento de compra
   const compras = S.eventos.filter(e => e.clienteId === cliente?.id && e.tipo === 'COMPRA');

@@ -408,6 +408,7 @@ function renderAdmin() {
   renderUsuariosList();
   cargarConfigAdmin();
   if (typeof cargarConfigHora === 'function') cargarConfigHora();
+  if (typeof cargarFaviconPreview === 'function') cargarFaviconPreview();
 }
 
 function cargarConfigAdmin() {
@@ -428,6 +429,7 @@ function cargarConfigAdmin() {
   set('msg-listo',   S.config.msgListo);
   // Google
   const g = S.config.google || {};
+  set('google-email',         g.email);
   set('google-client-id',     g.clientId);
   set('google-client-secret', g.clientSecret);
   set('google-refresh-token', g.refreshToken);
@@ -438,6 +440,7 @@ function cargarConfigAdmin() {
 
 function guardarConfigGoogle() {
   S.config.google = {
+    email:        document.getElementById('google-email').value.trim(),
     clientId:     document.getElementById('google-client-id').value.trim(),
     clientSecret: document.getElementById('google-client-secret').value.trim(),
     refreshToken: document.getElementById('google-refresh-token').value.trim(),
@@ -453,7 +456,8 @@ function actualizarEstadoGoogle() {
   if (!el) return;
   const g = S.config.google;
   if (g?.clientId && g?.clientSecret && g?.refreshToken) {
-    el.innerHTML = '<span style="color:var(--green);">✓ Configurado</span> — los contactos se agendarán automáticamente';
+    const cuenta = g.email ? ` (${g.email})` : '';
+    el.innerHTML = `<span style="color:var(--green);">✓ Configurado${cuenta}</span> — los contactos se agendarán automáticamente`;
   } else {
     el.innerHTML = '<span style="color:var(--text3);">Sin configurar</span>';
   }
@@ -1113,4 +1117,56 @@ function eliminarCarrusel(i) {
   S.config.carruseles.splice(i, 1);
   saveLocal();
   switchPred('carruseles', document.querySelector('[data-pred="carruseles"]'));
+}
+
+// ════════════════════════════════════════════
+//  FAVICON (ícono del navegador)
+// ════════════════════════════════════════════
+function seleccionarFavicon() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml,image/jpeg,.ico';
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { showToast('El ícono es muy grande (máx 500 KB)', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      S.config.favicon = reader.result;   // data URL
+      saveLocal();
+      aplicarFavicon();
+      cargarFaviconPreview();
+      showToast('Ícono actualizado');
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+
+function quitarFavicon() {
+  delete S.config.favicon;
+  saveLocal();
+  aplicarFavicon();
+  cargarFaviconPreview();
+  showToast('Ícono quitado');
+}
+
+function aplicarFavicon() {
+  let link = document.querySelector("link[rel~='icon']");
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  if (S.config.favicon) link.href = S.config.favicon;
+}
+
+function cargarFaviconPreview() {
+  const img = document.getElementById('favicon-preview');
+  const info = document.getElementById('favicon-info');
+  if (img) {
+    if (S.config.favicon) { img.src = S.config.favicon; img.style.display = 'inline-block'; }
+    else { img.style.display = 'none'; }
+  }
+  if (info) info.textContent = S.config.favicon ? 'Ícono cargado' : 'Sin ícono personalizado';
 }

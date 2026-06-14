@@ -728,7 +728,26 @@ function hashSHA256(str) {
 }
 
 function normalizarTelefono(tel) {
-  return tel.replace(/\D/g,'');
+  return (tel||'').replace(/\D/g,'');
+}
+
+// Compara dos teléfonos ignorando prefijos de país/área variables.
+// Argentina: 549 + área + número. Compara los últimos 8 dígitos (el número local).
+function mismoTelefono(a, b) {
+  let na = normalizarTelefono(a);
+  let nb = normalizarTelefono(b);
+  if (!na || !nb) return false;
+  // Quitar prefijos comunes de Argentina (54, 549, 0, 15)
+  const limpiar = (n) => {
+    n = n.replace(/^54/, '');     // código país
+    n = n.replace(/^9/, '');      // 9 de celular
+    n = n.replace(/^0/, '');      // 0 nacional
+    return n;
+  };
+  na = limpiar(na); nb = limpiar(nb);
+  // Comparar los últimos 8 dígitos (número local sin área ambigua)
+  const ua = na.slice(-8), ub = nb.slice(-8);
+  return ua.length >= 6 && ua === ub;
 }
 
 function obtenerIniciales(nombre) {
@@ -989,6 +1008,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   applyTheme();
+  if (typeof aplicarFavicon === 'function') aplicarFavicon();
 });
 
 // ════════════════════════════════════════════
