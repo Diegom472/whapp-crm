@@ -1331,7 +1331,7 @@ function cargarPanelContacto(conv) {
   cargarBusquedaActual(conv.phone);
 
   // Cargar comprobantes
-  renderComprobantes(phone);
+  renderComprobantes(conv.phone);
 
   // Cargar programados y recordatorios
   renderProgListPanel(conv.phone);
