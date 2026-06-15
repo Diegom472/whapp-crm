@@ -1141,8 +1141,12 @@ let audAnimFrame     = null;
 let audNiveles       = [];       // intensidad de voz por frame
 let audPlayer        = null;     // <audio> para reproducir
 let audReproducidoUnaVez = false;
+let audScrollOffset = 0;   // desplazamiento manual de la onda (en barras)
 
-const AUD_MAX_BARS = 64;
+// Onda tipo WhatsApp: cada barra = un fragmento fijo de tiempo, ancho fijo en px
+const AUD_BAR_W   = 4;     // ancho de cada barra (px lógicos)
+const AUD_BAR_GAP = 2;     // separación entre barras (px lógicos)
+const AUD_BARS_POR_SEG = 12; // cuántas barras por segundo de audio
 
 // ── Botón micrófono de la barra de input: grabar / pausar / reanudar ──
 function audioMicToggle() {
@@ -1260,27 +1264,70 @@ function dibujarOndaEnVivo() {
   for (let i = 0; i < data.length; i++) suma += data[i];
   const nivel = suma / data.length / 255;
   audNiveles.push(nivel);
-  if (audNiveles.length > AUD_MAX_BARS) audNiveles.shift();
-  pintarOnda(audNiveles);
+  // Mientras graba, la onda se mantiene pegada al borde derecho (mostrar lo último)
+  audScrollOffset = Infinity; // marca: seguir al final
+  pintarOnda(audNiveles, -1);
   audAnimFrame = requestAnimationFrame(dibujarOndaEnVivo);
 }
 
-function pintarOnda(niveles) {
+// niveles: array de intensidades. progresoFrac: 0..1 posición de reproducción (-1 = sin playhead)
+function pintarOnda(niveles, progresoFrac) {
   if (!audCtx || !audCanvas) return;
+  const dpr = window.devicePixelRatio || 1;
   const w = audCanvas.width, h = audCanvas.height;
   audCtx.clearRect(0, 0, w, h);
-  const barW = w / AUD_MAX_BARS;
-  const gap = barW * 0.4;
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#16a34a';
+  const barW = AUD_BAR_W * dpr;
+  const gap  = AUD_BAR_GAP * dpr;
+  const paso = barW + gap;
+  const totalAncho = niveles.length * paso;      // ancho total de la onda
+  const visibleAncho = w;                        // ancho visible del canvas
+  const centro = w / 2;
+
+  // Determinar el offset de scroll (en px lógicos * dpr)
+  let offsetPx;
+  if (audEstado === 'grabando') {
+    // Pegado al final: mostrar las últimas barras
+    offsetPx = Math.max(0, totalAncho - visibleAncho);
+  } else if (audEstado === 'reproduciendo' && progresoFrac >= 0) {
+    // El playhead avanza hasta el centro; después la onda se desplaza
+    const posPlay = progresoFrac * totalAncho;   // posición de reproducción en px
+    if (posPlay <= centro) {
+      offsetPx = 0;                              // aún no llegó al centro
+    } else if (posPlay >= totalAncho - centro) {
+      offsetPx = totalAncho - visibleAncho;      // cerca del final
+    } else {
+      offsetPx = posPlay - centro;               // playhead fijo al centro, onda se mueve
+    }
+    if (offsetPx < 0) offsetPx = 0;
+  } else {
+    // Pausado / con scroll manual
+    const maxOffset = Math.max(0, totalAncho - visibleAncho);
+    offsetPx = Math.max(0, Math.min(maxOffset, audScrollOffset * paso));
+  }
+
+  // Dibujar barras visibles
   audCtx.fillStyle = accent;
   for (let i = 0; i < niveles.length; i++) {
-    const bh = Math.max(h * 0.08, niveles[i] * h * 0.92);
-    const x = i * barW + gap/2;
+    const x = i * paso - offsetPx;
+    if (x + barW < 0 || x > w) continue;         // fuera de vista
+    const bh = Math.max(h * 0.10, niveles[i] * h * 0.9);
     const y = (h - bh) / 2;
     audCtx.beginPath();
-    const r = Math.min((barW-gap)/2, bh/2, 2.5 * (window.devicePixelRatio||1));
-    roundRect(audCtx, x, y, Math.max(1, barW - gap), bh, r);
+    const r = Math.min(barW/2, bh/2, 2 * dpr);
+    roundRect(audCtx, x, y, barW, bh, r);
     audCtx.fill();
+  }
+
+  // Dibujar el playhead (barra vertical) según el modo
+  if (progresoFrac >= 0) {
+    let phx;
+    const posPlay = progresoFrac * totalAncho;
+    if (posPlay <= centro) phx = posPlay;                       // antes del centro
+    else if (posPlay >= totalAncho - centro) phx = posPlay - (totalAncho - visibleAncho);
+    else phx = centro;                                          // fijo al centro
+    audCtx.fillStyle = '#ff3b30';
+    audCtx.fillRect(phx - dpr, 0, 2 * dpr, h);
   }
 }
 
@@ -1303,7 +1350,7 @@ function pausarGrabacionAudio() {
     setMicBtn('mic');
     setBotonesPanelAudio();
     prepararPlayerAudio();
-    pintarOnda(audNiveles);
+    pintarOnda(audNiveles, -1);
   };
   audMediaRecorder.stop();
   if (audStream) audStream.getTracks().forEach(t => t.stop());
@@ -1341,84 +1388,128 @@ function prepararPlayerAudio() {
   audPlayer.onended = () => {
     audEstado = 'pausado';
     setBotonesPanelAudio();
-    ocultarPlayhead();
     actualizarTiempoAudio(audSeconds);
+    pintarOnda(audNiveles, -1);
   };
   audPlayer.ontimeupdate = () => {
     if (audPlayer.duration && isFinite(audPlayer.duration)) {
       const frac = audPlayer.currentTime / audPlayer.duration;
-      moverPlayhead(frac);
+      pintarOnda(audNiveles, frac);          // dibuja onda desplazada + playhead
       actualizarTiempoAudio(audPlayer.currentTime);
     }
   };
 }
 
 function audioReproducir() {
-  if (audEstado === 'grabando') return; // primero pausar
+  if (audEstado === 'grabando') return;
   if (!audPlayer) prepararPlayerAudio();
   if (!audPlayer) return;
 
   if (audEstado === 'reproduciendo') {
-    // Stop: detener donde esté
     audPlayer.pause();
     audEstado = 'pausado';
     setBotonesPanelAudio();
   } else {
-    // Play: 1ra vez desde el principio; luego desde donde quedó
     if (!audReproducidoUnaVez) {
       audPlayer.currentTime = 0;
       audReproducidoUnaVez = true;
     }
     audEstado = 'reproduciendo';
     setBotonesPanelAudio();
-    mostrarPlayhead();
     audPlayer.play();
   }
 }
 
-// ── PLAYHEAD (barra vertical sobre la onda) ──
-function mostrarPlayhead() {
-  document.getElementById('audio-playhead')?.classList.add('active');
-}
-function ocultarPlayhead() {
-  const ph = document.getElementById('audio-playhead');
-  if (ph) { ph.classList.remove('active'); ph.style.left = '0'; }
-}
-function moverPlayhead(frac) {
-  const ph = document.getElementById('audio-playhead');
-  const wrap = document.getElementById('audio-wave-wrap');
-  if (ph && wrap) {
-    frac = Math.max(0, Math.min(1, frac));
-    ph.style.left = (frac * wrap.clientWidth) + 'px';
-  }
+// Pinta la onda en una fracción fija (cuando está pausado tras un seek)
+function pintarOndaEnFrac(frac) {
+  // Calcular offset para que el punto quede visible
+  const prev = audEstado;
+  pintarOnda(audNiveles, frac);
 }
 
-// Click / arrastre en la onda para desplazarse
+function ocultarPlayhead() {
+  // Ya no hay div; redibujar sin playhead
+  if (audCtx && audNiveles.length) pintarOnda(audNiveles, -1);
+}
+
+// ── INTERACCIÓN CON LA ONDA ──
+// Click = posicionar playhead en ese punto del audio.
+// Arrastrar = desplazar (scrub) la onda hacia adelante/atrás.
 function setupCanvasSeek() {
   const wrap = document.getElementById('audio-wave-wrap');
   if (!wrap || wrap._seekSet) return;
   wrap._seekSet = true;
 
-  const seek = (clientX) => {
+  const dpr = () => (window.devicePixelRatio || 1);
+  const pasoPx = () => (AUD_BAR_W + AUD_BAR_GAP); // px lógicos por barra
+
+  // Posición de reproducción actual en px (lógicos) dentro de la onda total
+  const posActualPx = () => {
+    if (!audPlayer || !audPlayer.duration) return 0;
+    const frac = audPlayer.currentTime / audPlayer.duration;
+    return frac * audNiveles.length * pasoPx();
+  };
+
+  // Click: posicionar en el punto tocado (teniendo en cuenta el scroll actual)
+  const clickPosicionar = (clientX) => {
     if (audEstado === 'grabando' || audEstado === 'idle') return;
     if (!audPlayer || !audPlayer.duration || !isFinite(audPlayer.duration)) return;
     const rect = wrap.getBoundingClientRect();
-    let frac = (clientX - rect.left) / rect.width;
+    const xRel = clientX - rect.left;             // px dentro del recuadro visible
+    const totalAncho = audNiveles.length * pasoPx();
+    const visible = rect.width;
+    const centro = visible / 2;
+
+    // Reconstruir el offset actual (según el modo de reproducción)
+    let offset;
+    const posPlay = posActualPx();
+    if (posPlay <= centro) offset = 0;
+    else if (posPlay >= totalAncho - centro) offset = Math.max(0, totalAncho - visible);
+    else offset = posPlay - centro;
+
+    const posEnOnda = xRel + offset;              // px absolutos en la onda
+    let frac = posEnOnda / totalAncho;
     frac = Math.max(0, Math.min(1, frac));
     audPlayer.currentTime = frac * audPlayer.duration;
     audReproducidoUnaVez = true;
-    moverPlayhead(frac);
-    mostrarPlayhead();
+    pintarOnda(audNiveles, frac);
     actualizarTiempoAudio(audPlayer.currentTime);
   };
 
   let arrastrando = false;
-  wrap.addEventListener('mousedown', e => { arrastrando = true; seek(e.clientX); });
-  window.addEventListener('mousemove', e => { if (arrastrando) seek(e.clientX); });
-  window.addEventListener('mouseup', () => { arrastrando = false; });
-  // Touch
-  wrap.addEventListener('touchstart', e => { seek(e.touches[0].clientX); }, {passive:true});
-  wrap.addEventListener('touchmove', e => { seek(e.touches[0].clientX); }, {passive:true});
+  let startX = 0, startTime = 0, movido = false;
+
+  const iniciarArrastre = (clientX) => {
+    if (audEstado === 'grabando' || audEstado === 'idle') return;
+    if (!audPlayer || !audPlayer.duration) return;
+    arrastrando = true; movido = false;
+    startX = clientX; startTime = audPlayer.currentTime;
+  };
+  const moverArrastre = (clientX) => {
+    if (!arrastrando || !audPlayer || !audPlayer.duration) return;
+    const dx = clientX - startX;
+    if (Math.abs(dx) > 3) movido = true;
+    const totalAncho = audNiveles.length * (AUD_BAR_W + AUD_BAR_GAP);
+    const deltaFrac = -dx / totalAncho;           // arrastrar a la izq = avanzar
+    let nuevoTime = startTime + deltaFrac * audPlayer.duration;
+    nuevoTime = Math.max(0, Math.min(audPlayer.duration, nuevoTime));
+    audPlayer.currentTime = nuevoTime;
+    audReproducidoUnaVez = true;
+    pintarOnda(audNiveles, nuevoTime / audPlayer.duration);
+    actualizarTiempoAudio(nuevoTime);
+  };
+  const finArrastre = (clientX) => {
+    if (!arrastrando) return;
+    arrastrando = false;
+    if (!movido) clickPosicionar(clientX);        // fue click, no arrastre
+  };
+
+  wrap.addEventListener('mousedown', e => iniciarArrastre(e.clientX));
+  window.addEventListener('mousemove', e => moverArrastre(e.clientX));
+  window.addEventListener('mouseup', e => finArrastre(e.clientX));
+  wrap.addEventListener('touchstart', e => iniciarArrastre(e.touches[0].clientX), {passive:true});
+  wrap.addEventListener('touchmove', e => moverArrastre(e.touches[0].clientX), {passive:true});
+  wrap.addEventListener('touchend', e => finArrastre(e.changedTouches[0].clientX), {passive:true});
 }
 
 // ── CORTAR desde el playhead (elimina lo posterior) ──
@@ -1448,7 +1539,7 @@ async function audioCortar() {
       audSeconds = Math.floor(cutTime);
       audReproducidoUnaVez = false;
       prepararPlayerAudio();
-      pintarOnda(audNiveles);
+      pintarOnda(audNiveles, -1);
       actualizarTiempoAudio(audSeconds);
       ocultarPlayhead();
       audEstado = 'pausado';
