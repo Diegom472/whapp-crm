@@ -1141,12 +1141,13 @@ let audAnimFrame     = null;
 let audNiveles       = [];       // intensidad de voz por frame
 let audPlayer        = null;     // <audio> para reproducir
 let audReproducidoUnaVez = false;
-let audScrollOffset = 0;   // desplazamiento manual de la onda (en barras)
+let audScrollOffset = 0;   // desplazamiento manual de la onda (en px lógicos)
+let audScrollManual = false; // true cuando el usuario movió el scroll a mano
 
 // Onda tipo WhatsApp: cada barra = un fragmento fijo de tiempo, ancho fijo en px
-const AUD_BAR_W   = 4;     // ancho de cada barra (px lógicos)
-const AUD_BAR_GAP = 2;     // separación entre barras (px lógicos)
-const AUD_BARS_POR_SEG = 12; // cuántas barras por segundo de audio
+const AUD_BAR_W   = 3;     // ancho de cada barra (px lógicos) — más finas
+const AUD_BAR_GAP = 2;     // separación entre barras
+const AUD_BARS_POR_SEG = 8; // menos barras/seg = onda más compacta (zoom out)
 
 // ── Botón micrófono de la barra de input: grabar / pausar / reanudar ──
 function audioMicToggle() {
@@ -1213,7 +1214,7 @@ function arrancarAnalisis(stream) {
   audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const source = audAudioCtx.createMediaStreamSource(stream);
   audAnalyser = audAudioCtx.createAnalyser();
-  audAnalyser.fftSize = 256;
+  audAnalyser.fftSize = 1024;
   source.connect(audAnalyser);
 }
 
@@ -1227,6 +1228,7 @@ function mostrarBarraAudio() {
     audCtx = audCanvas.getContext('2d');
   }
   setupCanvasSeek();
+  setupScrollBar();
 }
 
 // Botones del panel: Play (play/stop), tijera, cancelar, enviar
@@ -1256,21 +1258,36 @@ function actualizarTiempoAudio(seg) {
 }
 
 // ── ONDA EN VIVO ──
+let audUltimaMuestra = 0;
 function dibujarOndaEnVivo() {
   if (audEstado !== 'grabando' || !audAnalyser || !audCtx) return;
-  const data = new Uint8Array(audAnalyser.frequencyBinCount);
-  audAnalyser.getByteFrequencyData(data);
+  // Usar datos de forma de onda (time domain) para medir intensidad real (RMS)
+  const data = new Uint8Array(audAnalyser.fftSize);
+  audAnalyser.getByteTimeDomainData(data);
   let suma = 0;
-  for (let i = 0; i < data.length; i++) suma += data[i];
-  const nivel = suma / data.length / 255;
-  audNiveles.push(nivel);
-  // Mientras graba, la onda se mantiene pegada al borde derecho (mostrar lo último)
-  audScrollOffset = Infinity; // marca: seguir al final
+  for (let i = 0; i < data.length; i++) {
+    const v = (data[i] - 128) / 128;  // -1..1
+    suma += v * v;
+  }
+  const rms = Math.sqrt(suma / data.length);   // 0..1 intensidad real
+  // Amplificar para que se note (la voz normal da RMS bajo)
+  const nivel = Math.min(1, rms * 2.6);
+
+  // Tomar una barra cada ~ (1000/AUD_BARS_POR_SEG) ms, no cada frame
+  const ahora = performance.now();
+  const intervalo = 1000 / AUD_BARS_POR_SEG;
+  if (ahora - audUltimaMuestra >= intervalo) {
+    audNiveles.push(nivel);
+    audUltimaMuestra = ahora;
+  }
+  audScrollManual = false; // mientras graba, sigue al final
   pintarOnda(audNiveles, -1);
   audAnimFrame = requestAnimationFrame(dibujarOndaEnVivo);
 }
 
 // niveles: array de intensidades. progresoFrac: 0..1 posición de reproducción (-1 = sin playhead)
+let audOffsetActual = 0;       // último offset usado (px*dpr), para la barra de scroll
+let audTotalAnchoActual = 0;   // último ancho total (px*dpr)
 function pintarOnda(niveles, progresoFrac) {
   if (!audCtx || !audCanvas) return;
   const dpr = window.devicePixelRatio || 1;
@@ -1280,55 +1297,76 @@ function pintarOnda(niveles, progresoFrac) {
   const barW = AUD_BAR_W * dpr;
   const gap  = AUD_BAR_GAP * dpr;
   const paso = barW + gap;
-  const totalAncho = niveles.length * paso;      // ancho total de la onda
-  const visibleAncho = w;                        // ancho visible del canvas
+  const totalAncho = niveles.length * paso;
+  const visibleAncho = w;
   const centro = w / 2;
+  const maxOffset = Math.max(0, totalAncho - visibleAncho);
 
-  // Determinar el offset de scroll (en px lógicos * dpr)
+  // Determinar el offset de scroll
   let offsetPx;
   if (audEstado === 'grabando') {
-    // Pegado al final: mostrar las últimas barras
-    offsetPx = Math.max(0, totalAncho - visibleAncho);
+    offsetPx = maxOffset; // pegado al final
+  } else if (audScrollManual) {
+    // El usuario está moviendo la barra/onda a mano: respetar audScrollOffset
+    offsetPx = Math.max(0, Math.min(maxOffset, audScrollOffset));
   } else if (audEstado === 'reproduciendo' && progresoFrac >= 0) {
-    // El playhead avanza hasta el centro; después la onda se desplaza
-    const posPlay = progresoFrac * totalAncho;   // posición de reproducción en px
-    if (posPlay <= centro) {
-      offsetPx = 0;                              // aún no llegó al centro
-    } else if (posPlay >= totalAncho - centro) {
-      offsetPx = totalAncho - visibleAncho;      // cerca del final
-    } else {
-      offsetPx = posPlay - centro;               // playhead fijo al centro, onda se mueve
-    }
+    const posPlay = progresoFrac * totalAncho;
+    if (posPlay <= centro) offsetPx = 0;
+    else if (posPlay >= totalAncho - centro) offsetPx = maxOffset;
+    else offsetPx = posPlay - centro;
     if (offsetPx < 0) offsetPx = 0;
   } else {
-    // Pausado / con scroll manual
-    const maxOffset = Math.max(0, totalAncho - visibleAncho);
-    offsetPx = Math.max(0, Math.min(maxOffset, audScrollOffset * paso));
+    offsetPx = Math.max(0, Math.min(maxOffset, audScrollOffset));
   }
+
+  audOffsetActual = offsetPx;
+  audTotalAnchoActual = totalAncho;
 
   // Dibujar barras visibles
   audCtx.fillStyle = accent;
   for (let i = 0; i < niveles.length; i++) {
     const x = i * paso - offsetPx;
-    if (x + barW < 0 || x > w) continue;         // fuera de vista
-    const bh = Math.max(h * 0.10, niveles[i] * h * 0.9);
+    if (x + barW < 0 || x > w) continue;
+    const bh = Math.max(h * 0.08, niveles[i] * h * 0.92);
     const y = (h - bh) / 2;
     audCtx.beginPath();
-    const r = Math.min(barW/2, bh/2, 2 * dpr);
+    const r = Math.min(barW/2, bh/2, 1.5 * dpr);
     roundRect(audCtx, x, y, barW, bh, r);
     audCtx.fill();
   }
 
-  // Dibujar el playhead (barra vertical) según el modo
+  // Playhead
   if (progresoFrac >= 0) {
     let phx;
     const posPlay = progresoFrac * totalAncho;
-    if (posPlay <= centro) phx = posPlay;                       // antes del centro
-    else if (posPlay >= totalAncho - centro) phx = posPlay - (totalAncho - visibleAncho);
-    else phx = centro;                                          // fijo al centro
+    if (audScrollManual) phx = posPlay - offsetPx;
+    else if (posPlay <= centro) phx = posPlay;
+    else if (posPlay >= totalAncho - centro) phx = posPlay - maxOffset;
+    else phx = centro;
     audCtx.fillStyle = '#ff3b30';
     audCtx.fillRect(phx - dpr, 0, 2 * dpr, h);
   }
+
+  actualizarBarraScroll(totalAncho, visibleAncho, offsetPx);
+}
+
+// Actualiza la barra de scroll debajo de la onda
+function actualizarBarraScroll(totalAncho, visibleAncho, offsetPx) {
+  const track = document.getElementById('audio-scroll-track');
+  const thumb = document.getElementById('audio-scroll-thumb');
+  if (!track || !thumb) return;
+  if (totalAncho <= visibleAncho) {
+    track.style.display = 'none';   // no hace falta scroll
+    return;
+  }
+  track.style.display = 'block';
+  const trackW = track.clientWidth;
+  const thumbW = Math.max(24, trackW * (visibleAncho / totalAncho));
+  const maxOffset = totalAncho - visibleAncho;
+  const frac = maxOffset > 0 ? (offsetPx / maxOffset) : 0;
+  const thumbX = frac * (trackW - thumbW);
+  thumb.style.width = thumbW + 'px';
+  thumb.style.left = thumbX + 'px';
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -1415,6 +1453,7 @@ function audioReproducir() {
       audReproducidoUnaVez = true;
     }
     audEstado = 'reproduciendo';
+    audScrollManual = false;   // al reproducir, la onda vuelve a seguir el playhead
     setBotonesPanelAudio();
     audPlayer.play();
   }
@@ -1455,23 +1494,28 @@ function setupCanvasSeek() {
     if (audEstado === 'grabando' || audEstado === 'idle') return;
     if (!audPlayer || !audPlayer.duration || !isFinite(audPlayer.duration)) return;
     const rect = wrap.getBoundingClientRect();
-    const xRel = clientX - rect.left;             // px dentro del recuadro visible
-    const totalAncho = audNiveles.length * pasoPx();
+    const xRel = clientX - rect.left;
+    const totalAncho = audNiveles.length * pasoPx();   // px lógicos
     const visible = rect.width;
     const centro = visible / 2;
 
-    // Reconstruir el offset actual (según el modo de reproducción)
+    // Offset actual en px lógicos
     let offset;
-    const posPlay = posActualPx();
-    if (posPlay <= centro) offset = 0;
-    else if (posPlay >= totalAncho - centro) offset = Math.max(0, totalAncho - visible);
-    else offset = posPlay - centro;
+    if (audScrollManual) {
+      offset = audOffsetActual / (window.devicePixelRatio || 1);
+    } else {
+      const posPlay = posActualPx();
+      if (posPlay <= centro) offset = 0;
+      else if (posPlay >= totalAncho - centro) offset = Math.max(0, totalAncho - visible);
+      else offset = posPlay - centro;
+    }
 
-    const posEnOnda = xRel + offset;              // px absolutos en la onda
+    const posEnOnda = xRel + offset;
     let frac = posEnOnda / totalAncho;
     frac = Math.max(0, Math.min(1, frac));
     audPlayer.currentTime = frac * audPlayer.duration;
     audReproducidoUnaVez = true;
+    audScrollManual = false;  // volver a centrar el playhead al posicionar
     pintarOnda(audNiveles, frac);
     actualizarTiempoAudio(audPlayer.currentTime);
   };
@@ -1643,7 +1687,50 @@ function audioCancelar() {
   actualizarTiempoAudio(0);
 }
 
-document.addEventListener('DOMContentLoaded', () => setupCanvasSeek());
+document.addEventListener('DOMContentLoaded', () => { setupCanvasSeek(); setupScrollBar(); });
+
+// Arrastre de la barra de scroll para desplazar la onda
+function setupScrollBar() {
+  const track = document.getElementById('audio-scroll-track');
+  const thumb = document.getElementById('audio-scroll-thumb');
+  if (!track || !thumb || track._set) return;
+  track._set = true;
+
+  const dpr = () => (window.devicePixelRatio || 1);
+
+  const irAFrac = (fracTrack) => {
+    // fracTrack 0..1 → offset de la onda
+    const w = audCanvas ? audCanvas.width : 0;
+    const maxOffset = Math.max(0, audTotalAnchoActual - w);
+    audScrollManual = true;
+    audScrollOffset = Math.max(0, Math.min(maxOffset, fracTrack * maxOffset));
+    // Si está reproduciendo, lo pausamos para inspeccionar
+    if (audEstado === 'reproduciendo') { audPlayer?.pause(); audEstado = 'pausado'; setBotonesPanelAudio(); }
+    // Redibujar manteniendo el playhead en su posición de tiempo
+    const frac = (audPlayer && audPlayer.duration) ? (audPlayer.currentTime/audPlayer.duration) : -1;
+    pintarOnda(audNiveles, frac);
+  };
+
+  let drag = false;
+  const fracDesdeX = (clientX) => {
+    const rect = track.getBoundingClientRect();
+    const thumbW = thumb.clientWidth;
+    let x = clientX - rect.left - thumbW/2;
+    return Math.max(0, Math.min(1, x / (rect.width - thumbW)));
+  };
+
+  thumb.addEventListener('mousedown', e => { drag = true; e.preventDefault(); });
+  track.addEventListener('mousedown', e => {
+    if (e.target === thumb) return;
+    irAFrac(fracDesdeX(e.clientX));
+  });
+  window.addEventListener('mousemove', e => { if (drag) irAFrac(fracDesdeX(e.clientX)); });
+  window.addEventListener('mouseup', () => { drag = false; });
+
+  thumb.addEventListener('touchstart', e => { drag = true; }, {passive:true});
+  window.addEventListener('touchmove', e => { if (drag && e.touches[0]) irAFrac(fracDesdeX(e.touches[0].clientX)); }, {passive:true});
+  window.addEventListener('touchend', () => { drag = false; });
+}
 
 // Aliases de compatibilidad
 function pausarAudio() { audioMicToggle(); }
