@@ -134,20 +134,17 @@
         <!-- Input wrapper FIJO — nunca se mueve -->
         <div class="chat-input-wrapper" id="chat-input-wrapper">
 
-          <!-- Barra de audio unificada (grabando / pausado) -->
+          <!-- Panel de audio (aparece solo al grabar) -->
           <div class="audio-bar" id="audio-bar">
-            <button class="audio-btn-cancel" title="Cancelar" onclick="audioCancelar()"><i class="ti ti-x"></i></button>
+            <button class="audio-btn-play" id="audio-btn-play" title="Reproducir" onclick="audioReproducir()"><i class="ti ti-player-play-filled"></i></button>
             <span class="audio-time" id="audio-time">0:00</span>
-            <!-- Botón Play (solo visible en pausa para escuchar) -->
-            <button class="audio-btn-play" id="audio-btn-play" title="Escuchar" onclick="audioReproducir()" style="display:none;"><i class="ti ti-player-play"></i></button>
-            <!-- Canvas de la onda sonora (en vivo o de reproducción) -->
-            <canvas id="audio-canvas" class="audio-canvas"></canvas>
-            <!-- Botón Cortar (solo en pausa, tras reproducir) -->
-            <button class="audio-btn-cut" id="audio-btn-cut" title="Cortar desde aquí" onclick="audioCortar()" style="display:none;"><i class="ti ti-cut"></i></button>
-            <!-- Botón Pausar / Seguir grabando -->
-            <button class="audio-btn-pause" id="audio-btn-pause" title="Pausar" onclick="audioTogglePausa()"><i class="ti ti-player-pause"></i></button>
-            <!-- Botón Enviar -->
-            <button class="audio-btn-send" title="Enviar" onclick="audioEnviar()"><i class="ti ti-send"></i></button>
+            <div class="audio-wave-wrap" id="audio-wave-wrap">
+              <canvas id="audio-canvas" class="audio-canvas"></canvas>
+              <div class="audio-playhead" id="audio-playhead"></div>
+            </div>
+            <button class="audio-btn-cut" id="audio-btn-cut" title="Cortar desde aquí" onclick="audioCortar()"><i class="ti ti-scissors"></i></button>
+            <button class="audio-btn-cancel" title="Cancelar" onclick="audioCancelar()"><i class="ti ti-x"></i></button>
+            <button class="audio-btn-send" title="Enviar audio" onclick="audioEnviar()"><i class="ti ti-send"></i></button>
           </div>
 
           <!-- Panel emoticones -->
@@ -160,10 +157,10 @@
           <div class="chat-input-area" id="chat-input-area">
             <button class="chat-input-btn" title="Adjuntar archivo" onclick="abrirAdjuntar()"><i class="ti ti-paperclip"></i></button>
             <button class="chat-input-btn" title="Emoticones" id="btn-emoji" onclick="toggleEmojiPanel()"><i class="ti ti-mood-smile"></i></button>
-            <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="iniciarAudio()"><i class="ti ti-microphone"></i></button>
+            <button class="chat-input-btn" title="Grabar audio" id="btn-audio" onclick="audioMicToggle()"><i class="ti ti-microphone"></i></button>
             <button class="chat-input-btn" title="Enviar carrusel" onclick="abrirCarrusel()"><i class="ti ti-layout-grid"></i></button>
             <textarea class="chat-input" id="msg-input" placeholder="Escribí un mensaje..." rows="1" onkeydown="handleMsgKeydown(event)" oninput="autoResizeInput(this)"></textarea>
-            <button class="send-btn" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>
+            <button class="send-btn" id="btn-send-input" onclick="enviarMensaje()"><i class="ti ti-send"></i></button>
           </div>
 
         </div><!-- /chat-input-wrapper -->
