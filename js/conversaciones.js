@@ -1120,104 +1120,393 @@ async function subirArchivo(file) {
   abrirVisorComposicion();
 }
 
-// ── GRABADOR DE AUDIO — flujo simplificado ──
-let mediaRecorder = null;
-let audioChunks   = [];
-let audioBlob     = null;
-let recTimer      = null;
-let recSeconds    = 0;
-let recPaused     = false;
+// ════════════════════════════════════════════
+//  GRABADOR DE AUDIO — rediseño completo
+//  Onda real, pausa/reproducir, cortar, enviar
+// ════════════════════════════════════════════
+let audMediaRecorder = null;
+let audStream        = null;
+let audChunks        = [];
+let audBlob          = null;
+let audMime          = '';
+let audTimer         = null;
+let audSeconds       = 0;
+let audEstado        = 'idle';   // idle | grabando | pausado | reproduciendo
+let audCanvas        = null;
+let audCtx           = null;
+let audAudioCtx      = null;
+let audAnalyser      = null;
+let audAnimFrame     = null;
+let audNiveles       = [];       // historial de intensidad para dibujar la onda
+let audPlayer        = null;     // elemento <audio> para reproducir en pausa
+let audCutTime       = null;     // punto de corte marcado al reproducir
 
-let recMimeType = '';   // formato real de grabación
+const AUD_MAX_BARS = 60;         // cuántas barras de onda mostrar
 
 function iniciarAudio() {
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-    audioChunks = []; recSeconds = 0; recPaused = false;
+  if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
+  navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+  }).then(stream => {
+    audStream = stream;
+    audChunks = []; audSeconds = 0; audNiveles = []; audCutTime = null;
 
-    // Grabar en webm/opus (soportado por todos los navegadores modernos).
-    // El audio YA es Opus; antes de enviar se remuxea a OGG/Opus para que
-    // WhatsApp lo muestre como nota de voz. Si el navegador soporta ogg nativo, mejor.
-    const formatos = [
-      'audio/ogg;codecs=opus',
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4'
-    ];
-    recMimeType = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
+    // Formato: webm/opus es universal; se remuxea a ogg al enviar
+    const formatos = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm','audio/mp4'];
+    audMime = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
 
-    mediaRecorder = recMimeType
-      ? new MediaRecorder(stream, { mimeType: recMimeType })
-      : new MediaRecorder(stream);
+    // Bitrate bajo para que el audio pese poco (nota de voz <512KB)
+    const opts = { audioBitsPerSecond: 24000 };
+    if (audMime) opts.mimeType = audMime;
+    audMediaRecorder = new MediaRecorder(stream, opts);
 
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      // Usar el MISMO tipo con el que se grabó (sino no reproduce)
-      const tipoReal = recMimeType || 'audio/webm';
-      audioBlob = new Blob(audioChunks, { type: tipoReal });
-      const url = URL.createObjectURL(audioBlob);
-      const player = document.getElementById('audio-paused-player');
-      if (player) { player.src = url; player.load(); }
-      document.getElementById('audio-recording-bar').classList.remove('active');
-      document.getElementById('audio-paused-bar').classList.add('active');
+    audMediaRecorder.ondataavailable = e => { if (e.data.size > 0) audChunks.push(e.data); };
+    audMediaRecorder.onstop = () => {
+      const tipo = audMime || 'audio/webm';
+      audBlob = new Blob(audChunks, { type: tipo });
     };
-    mediaRecorder.start();
-    document.getElementById('audio-recording-bar').classList.add('active');
-    document.getElementById('audio-paused-bar').classList.remove('active');
+    audMediaRecorder.start();
 
-    recTimer = setInterval(() => {
-      if (!recPaused) {
-        recSeconds++;
-        const m = Math.floor(recSeconds/60), s = recSeconds%60;
-        const el = document.getElementById('audio-rec-time');
-        if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
-      }
-    }, 1000);
+    // Analizador para la onda real
+    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audAudioCtx.createMediaStreamSource(stream);
+    audAnalyser = audAudioCtx.createAnalyser();
+    audAnalyser.fftSize = 256;
+    source.connect(audAnalyser);
+
+    audEstado = 'grabando';
+    mostrarBarraAudio();
+    setBotonesAudio();
+    iniciarTimerAudio();
+    dibujarOndaEnVivo();
 
     document.getElementById('btn-audio')?.classList.add('recording');
   }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
 }
 
-function pausarAudio() {
-  // Al tocar pausa: detener grabación → mostrar player inmediatamente
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-  clearInterval(recTimer);
-  mediaRecorder.stop();
-  document.getElementById('btn-audio')?.classList.remove('recording');
-  // El onstop se encarga de mostrar audio-paused-bar
+function mostrarBarraAudio() {
+  document.getElementById('audio-bar')?.classList.add('active');
+  audCanvas = document.getElementById('audio-canvas');
+  if (audCanvas) {
+    // Ajustar resolución del canvas a su tamaño real
+    const rect = audCanvas.getBoundingClientRect();
+    audCanvas.width = rect.width * (window.devicePixelRatio || 1);
+    audCanvas.height = rect.height * (window.devicePixelRatio || 1);
+    audCtx = audCanvas.getContext('2d');
+  }
+  setupCanvasSeek(); // asegurar que el click-para-reproducir esté activo
 }
 
-async function enviarAudioPausado() {
-  if (!audioBlob || !S.convActiva) return;
+function setBotonesAudio() {
+  const play  = document.getElementById('audio-btn-play');
+  const cut   = document.getElementById('audio-btn-cut');
+  const pause = document.getElementById('audio-btn-pause');
+  if (!pause) return;
+  if (audEstado === 'grabando') {
+    pause.innerHTML = '<i class="ti ti-player-pause"></i>'; pause.title = 'Pausar';
+    if (play) play.style.display = 'none';
+    if (cut)  cut.style.display  = 'none';
+  } else if (audEstado === 'pausado') {
+    pause.innerHTML = '<i class="ti ti-microphone"></i>'; pause.title = 'Seguir grabando';
+    if (play) play.style.display = 'flex';
+    if (cut)  cut.style.display  = 'none';   // el corte aparece al reproducir
+  } else if (audEstado === 'reproduciendo') {
+    if (play) { play.innerHTML = '<i class="ti ti-player-pause"></i>'; play.title = 'Pausar reproducción'; }
+    if (cut)  cut.style.display = 'flex';
+  }
+}
+
+function iniciarTimerAudio() {
+  clearInterval(audTimer);
+  audTimer = setInterval(() => {
+    if (audEstado === 'grabando') {
+      audSeconds++;
+      actualizarTiempoAudio(audSeconds);
+    }
+  }, 1000);
+}
+
+function actualizarTiempoAudio(seg) {
+  const m = Math.floor(seg/60), s = Math.floor(seg%60);
+  const el = document.getElementById('audio-time');
+  if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+// ── ONDA EN VIVO (intensidad real de la voz) ──
+function dibujarOndaEnVivo() {
+  if (audEstado !== 'grabando' || !audAnalyser || !audCtx) return;
+  const data = new Uint8Array(audAnalyser.frequencyBinCount);
+  audAnalyser.getByteFrequencyData(data);
+  // Nivel promedio de intensidad
+  let suma = 0;
+  for (let i = 0; i < data.length; i++) suma += data[i];
+  const nivel = suma / data.length / 255; // 0..1
+  audNiveles.push(nivel);
+  if (audNiveles.length > AUD_MAX_BARS) audNiveles.shift();
+
+  pintarOnda(audNiveles, -1);
+  audAnimFrame = requestAnimationFrame(dibujarOndaEnVivo);
+}
+
+// Dibuja las barras de la onda. progreso = índice hasta donde resaltar (reproducción)
+function pintarOnda(niveles, progresoIdx) {
+  if (!audCtx || !audCanvas) return;
+  const w = audCanvas.width, h = audCanvas.height;
+  audCtx.clearRect(0, 0, w, h);
+  const n = niveles.length || 1;
+  const barW = w / AUD_MAX_BARS;
+  const gap = barW * 0.35;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#16a34a';
+
+  for (let i = 0; i < niveles.length; i++) {
+    const nivel = niveles[i];
+    // altura mínima (línea plana si no hay sonido) y máxima
+    const bh = Math.max(h * 0.06, nivel * h * 0.9);
+    const x = i * barW + gap/2;
+    const y = (h - bh) / 2;
+    // color: resaltado si ya se reprodujo, atenuado si falta
+    if (progresoIdx >= 0) {
+      audCtx.fillStyle = (i <= progresoIdx) ? accent : 'rgba(150,150,150,0.4)';
+    } else {
+      audCtx.fillStyle = accent;
+    }
+    audCtx.beginPath();
+    const r = Math.min(barW/2, bh/2, 3 * (window.devicePixelRatio||1));
+    roundRect(audCtx, x, y, barW - gap, bh, r);
+    audCtx.fill();
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+}
+
+// ── PAUSAR / SEGUIR GRABANDO ──
+function audioTogglePausa() {
+  if (audEstado === 'grabando') {
+    // Pausar: detener grabación y preparar reproducción
+    pausarGrabacionAudio();
+  } else if (audEstado === 'pausado' || audEstado === 'reproduciendo') {
+    // Seguir grabando: reanudar desde donde quedó
+    reanudarGrabacionAudio();
+  }
+}
+
+function pausarGrabacionAudio() {
+  if (!audMediaRecorder || audMediaRecorder.state === 'inactive') return;
+  cancelAnimationFrame(audAnimFrame);
+  clearInterval(audTimer);
+
+  // Detener para consolidar el blob hasta acá
+  audMediaRecorder.onstop = () => {
+    const tipo = audMime || 'audio/webm';
+    audBlob = new Blob(audChunks, { type: tipo });
+    audEstado = 'pausado';
+    setBotonesAudio();
+    // Preparar player para escuchar
+    prepararPlayerAudio();
+    // Dibujar la onda completa (estática) de lo grabado
+    pintarOnda(audNiveles, -1);
+  };
+  audMediaRecorder.stop();
+  if (audStream) audStream.getTracks().forEach(t => t.stop());
+}
+
+function reanudarGrabacionAudio() {
+  // Volvemos a grabar: continuamos acumulando en audChunks
+  // (Se recrea el stream y el recorder, los chunks se concatenan)
+  if (audPlayer) { audPlayer.pause(); }
+  navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+  }).then(stream => {
+    audStream = stream;
+    const opts = { audioBitsPerSecond: 24000 };
+    if (audMime) opts.mimeType = audMime;
+    audMediaRecorder = new MediaRecorder(stream, opts);
+    audMediaRecorder.ondataavailable = e => { if (e.data.size > 0) audChunks.push(e.data); };
+    audMediaRecorder.onstop = () => {
+      const tipo = audMime || 'audio/webm';
+      audBlob = new Blob(audChunks, { type: tipo });
+    };
+    audMediaRecorder.start();
+
+    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audAudioCtx.createMediaStreamSource(stream);
+    audAnalyser = audAudioCtx.createAnalyser();
+    audAnalyser.fftSize = 256;
+    source.connect(audAnalyser);
+
+    audEstado = 'grabando';
+    setBotonesAudio();
+    iniciarTimerAudio();
+    dibujarOndaEnVivo();
+  }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
+}
+
+// ── REPRODUCIR EN PAUSA ──
+function prepararPlayerAudio() {
+  if (!audBlob) return;
+  if (!audPlayer) audPlayer = new Audio();
+  audPlayer.src = URL.createObjectURL(audBlob);
+  audPlayer.onended = () => {
+    audEstado = 'pausado';
+    setBotonesAudio();
+    actualizarTiempoAudio(audSeconds);
+  };
+  audPlayer.ontimeupdate = () => {
+    if (audPlayer.duration) {
+      const frac = audPlayer.currentTime / audPlayer.duration;
+      const idx = Math.floor(frac * audNiveles.length);
+      pintarOnda(audNiveles, idx);
+      actualizarTiempoAudio(audPlayer.currentTime);
+      audCutTime = audPlayer.currentTime;
+    }
+  };
+}
+
+function audioReproducir() {
+  if (!audPlayer) prepararPlayerAudio();
+  if (audEstado === 'reproduciendo') {
+    audPlayer.pause();
+    audEstado = 'pausado';
+    setBotonesAudio();
+  } else {
+    audEstado = 'reproduciendo';
+    setBotonesAudio();
+    audPlayer.play();
+  }
+}
+
+// Click en la onda → reproducir desde ese punto
+function setupCanvasSeek() {
+  const canvas = document.getElementById('audio-canvas');
+  if (!canvas || canvas._seekSet) return;
+  canvas._seekSet = true;
+  canvas.addEventListener('click', (e) => {
+    if (audEstado !== 'pausado' && audEstado !== 'reproduciendo') return;
+    if (!audPlayer || !audPlayer.duration) return;
+    const rect = canvas.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    audPlayer.currentTime = frac * audPlayer.duration;
+    audCutTime = audPlayer.currentTime;
+    if (audEstado !== 'reproduciendo') {
+      audEstado = 'reproduciendo';
+      setBotonesAudio();
+      audPlayer.play();
+    }
+  });
+}
+
+// ── CORTAR desde el punto de reproducción ──
+async function audioCortar() {
+  if (!audBlob || audCutTime == null) { showToast('Reproducí y pausá donde querés cortar', 'warn'); return; }
+  if (audPlayer) audPlayer.pause();
+  showToast('Cortando audio...', 'warn');
+  try {
+    // Decodificar el audio y quedarse solo con la parte hasta audCutTime
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const arrBuf = await audBlob.arrayBuffer();
+    const decoded = await ctx.decodeAudioData(arrBuf);
+    const sampleRate = decoded.sampleRate;
+    const finFrame = Math.floor(audCutTime * sampleRate);
+    const recortado = ctx.createBuffer(decoded.numberOfChannels, finFrame, sampleRate);
+    for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+      recortado.copyToChannel(decoded.getChannelData(ch).slice(0, finFrame), ch);
+    }
+    // Re-grabar el buffer recortado a webm/opus mediante un stream
+    const blobRecortado = await bufferAOpusBlob(recortado, ctx);
+    if (blobRecortado) {
+      audBlob = blobRecortado;
+      // Ajustar niveles de onda al nuevo largo
+      const frac = audCutTime / (decoded.duration || 1);
+      const nuevoLargo = Math.max(1, Math.floor(audNiveles.length * frac));
+      audNiveles = audNiveles.slice(0, nuevoLargo);
+      audSeconds = audCutTime;
+      audCutTime = null;
+      prepararPlayerAudio();
+      pintarOnda(audNiveles, -1);
+      actualizarTiempoAudio(audSeconds);
+      audEstado = 'pausado';
+      setBotonesAudio();
+      showToast('Audio cortado');
+    }
+    ctx.close();
+  } catch(e) {
+    console.error('Error al cortar audio:', e);
+    showToast('No se pudo cortar el audio', 'error');
+  }
+}
+
+// Convierte un AudioBuffer a un Blob webm/opus re-grabándolo
+function bufferAOpusBlob(buffer, ctx) {
+  return new Promise((resolve) => {
+    try {
+      const dest = ctx.createMediaStreamDestination();
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(dest);
+      const formatos = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm'];
+      const mime = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
+      const rec = new MediaRecorder(dest.stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+      const chunks = [];
+      rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      rec.onstop = () => resolve(new Blob(chunks, { type: mime || 'audio/webm' }));
+      rec.start();
+      src.start();
+      src.onended = () => setTimeout(() => rec.stop(), 100);
+    } catch(e) {
+      console.error('bufferAOpusBlob error:', e);
+      resolve(null);
+    }
+  });
+}
+
+// ── ENVIAR ──
+async function audioEnviar() {
+  // Si está grabando, primero detener
+  if (audEstado === 'grabando') {
+    await new Promise(res => {
+      audMediaRecorder.onstop = () => {
+        const tipo = audMime || 'audio/webm';
+        audBlob = new Blob(audChunks, { type: tipo });
+        res();
+      };
+      cancelAnimationFrame(audAnimFrame);
+      clearInterval(audTimer);
+      audMediaRecorder.stop();
+      if (audStream) audStream.getTracks().forEach(t => t.stop());
+    });
+  }
+  if (!audBlob || !S.convActiva) { audioCancelar(); return; }
+
   const phone = S.convActiva.phone;
-  // GUARDAR el blob en variable local ANTES de cancelar
-  let blobAudio = audioBlob;
-  let tipoReal = blobAudio.type || 'audio/webm';
+  const blobAudio = audBlob;
+  const tipoReal = blobAudio.type || 'audio/webm';
 
   const urlLocal = URL.createObjectURL(blobAudio);
   const msg = {
-    id:   generarId('MSG'), tipo: 'audio', url: urlLocal,
+    id: generarId('MSG'), tipo: 'audio', url: urlLocal,
     nombre: 'audio.ogg', mimetype: 'audio/ogg', dir: 'out',
     ts: Date.now(), operador: S.usuario?.nombre
   };
   if (!S.mensajesCache[phone]) S.mensajesCache[phone] = [];
   S.mensajesCache[phone].push(msg);
+  audioCancelar();
   renderMensajes(phone);
-  cancelarAudio();
   showToast('Procesando audio...', 'warn');
 
-  // Convertir a OGG/Opus para que WhatsApp lo muestre como nota de voz.
-  // Si ya es ogg, se usa tal cual. Si es webm/opus, se remuxea (liviano).
+  // Remux a OGG/Opus para nota de voz
   let blobFinal = blobAudio;
   if (!tipoReal.includes('ogg')) {
     try {
       if (typeof webmBlobToOggBlob === 'function' && tipoReal.includes('webm')) {
         blobFinal = await webmBlobToOggBlob(blobAudio, 1);
       }
-    } catch(e) {
-      console.warn('No se pudo remuxear a ogg, se envía como estaba:', e);
-      blobFinal = blobAudio;
-    }
+    } catch(e) { console.warn('No se pudo remuxear:', e); blobFinal = blobAudio; }
   }
   const nombre = `audio_${Date.now()}.ogg`;
   showToast('Subiendo audio...', 'warn');
@@ -1225,14 +1514,11 @@ async function enviarAudioPausado() {
   const file = new File([blobFinal], nombre, { type: 'audio/ogg' });
   const r2url = await subirArchivoR2(file);
   if (r2url) {
-    msg.url = r2url;
-    msg.nombre = nombre;
+    msg.url = r2url; msg.nombre = nombre;
     renderMensajes(phone);
     const resp = await enviarPorWhatsApp(phone, r2url, 'audio');
     if (resp && resp.error) {
-      const motivo = resp.error.message || resp.error.error_data?.details || 'formato no aceptado';
-      showToast('El audio se guardó pero WhatsApp lo rechazó: ' + motivo, 'error');
-      console.error('Meta rechazó el audio:', JSON.stringify(resp.error));
+      showToast('WhatsApp rechazó el audio: ' + (resp.error.message||''), 'error');
     } else {
       showToast('Audio enviado');
     }
@@ -1242,24 +1528,34 @@ async function enviarAudioPausado() {
   guardarMensajes(phone);
 }
 
-function cancelarAudio() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
+// ── CANCELAR ──
+function audioCancelar() {
+  if (audMediaRecorder && audMediaRecorder.state !== 'inactive') {
+    try { audMediaRecorder.stop(); } catch(e) {}
   }
-  clearInterval(recTimer);
-  audioChunks = []; audioBlob = null; recSeconds = 0;
-  document.getElementById('audio-recording-bar').classList.remove('active');
-  document.getElementById('audio-paused-bar').classList.remove('active');
+  if (audStream) audStream.getTracks().forEach(t => t.stop());
+  if (audPlayer) { audPlayer.pause(); audPlayer.src = ''; }
+  if (audAudioCtx) { try { audAudioCtx.close(); } catch(e) {} }
+  cancelAnimationFrame(audAnimFrame);
+  clearInterval(audTimer);
+  audChunks = []; audBlob = null; audSeconds = 0; audNiveles = [];
+  audEstado = 'idle'; audCutTime = null;
+  document.getElementById('audio-bar')?.classList.remove('active');
   document.getElementById('btn-audio')?.classList.remove('recording');
-  const player = document.getElementById('audio-paused-player');
-  if (player) { player.pause(); player.src = ''; }
+  actualizarTiempoAudio(0);
 }
 
+// Inicializar el seek del canvas cuando carga la página
+document.addEventListener('DOMContentLoaded', () => setupCanvasSeek());
+
+// Aliases de compatibilidad con llamadas viejas
+function pausarAudio() { audioTogglePausa(); }
+function cancelarAudio() { audioCancelar(); }
+function enviarAudioPausado() { audioEnviar(); }
 function toggleAudio() { iniciarAudio(); }
-// confirmarEnvioAudio → alias
-function confirmarEnvioAudio() { enviarAudioPausado(); }
-function cancelarPreviewAudio() { cancelarAudio(); }
-function detenerYPrevisualizar() { pausarAudio(); }
+function confirmarEnvioAudio() { audioEnviar(); }
+function cancelarPreviewAudio() { audioCancelar(); }
+function detenerYPrevisualizar() { audioTogglePausa(); }
 
 // ── BUSCAR EN CHAT ──
 function buscarEnChat() {
