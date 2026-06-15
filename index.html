@@ -138,9 +138,14 @@
           <div class="audio-bar" id="audio-bar">
             <button class="audio-btn-play" id="audio-btn-play" title="Reproducir" onclick="audioReproducir()"><i class="ti ti-player-play-filled"></i></button>
             <span class="audio-time" id="audio-time">0:00</span>
-            <div class="audio-wave-wrap" id="audio-wave-wrap">
-              <canvas id="audio-canvas" class="audio-canvas"></canvas>
-              <div class="audio-playhead" id="audio-playhead"></div>
+            <div class="audio-wave-col">
+              <div class="audio-wave-wrap" id="audio-wave-wrap">
+                <canvas id="audio-canvas" class="audio-canvas"></canvas>
+                <div class="audio-playhead" id="audio-playhead"></div>
+              </div>
+              <div class="audio-scroll-track" id="audio-scroll-track">
+                <div class="audio-scroll-thumb" id="audio-scroll-thumb"></div>
+              </div>
             </div>
             <button class="audio-btn-cut" id="audio-btn-cut" title="Cortar desde aquí" onclick="audioCortar()"><i class="ti ti-scissors"></i></button>
             <button class="audio-btn-cancel" title="Cancelar" onclick="audioCancelar()"><i class="ti ti-x"></i></button>
