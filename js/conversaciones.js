@@ -1145,17 +1145,28 @@ const AUD_MAX_BARS = 60;         // cuántas barras de onda mostrar
 
 function iniciarAudio() {
   if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('Tu navegador no soporta grabación de audio', 'error');
+    console.error('getUserMedia no disponible');
+    return;
+  }
+
+  // Resetear estado y mostrar la barra YA (para feedback inmediato)
+  audChunks = []; audSeconds = 0; audNiveles = []; audCutTime = null;
+  audEstado = 'grabando';
+  mostrarBarraAudio();
+  setBotonesAudio();
+  actualizarTiempoAudio(0);
+  document.getElementById('btn-audio')?.classList.add('recording');
+
   navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
   }).then(stream => {
     audStream = stream;
-    audChunks = []; audSeconds = 0; audNiveles = []; audCutTime = null;
 
-    // Formato: webm/opus es universal; se remuxea a ogg al enviar
     const formatos = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm','audio/mp4'];
     audMime = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
 
-    // Bitrate bajo para que el audio pese poco (nota de voz <512KB)
     const opts = { audioBitsPerSecond: 24000 };
     if (audMime) opts.mimeType = audMime;
     audMediaRecorder = new MediaRecorder(stream, opts);
@@ -1174,14 +1185,13 @@ function iniciarAudio() {
     audAnalyser.fftSize = 256;
     source.connect(audAnalyser);
 
-    audEstado = 'grabando';
-    mostrarBarraAudio();
-    setBotonesAudio();
     iniciarTimerAudio();
     dibujarOndaEnVivo();
-
-    document.getElementById('btn-audio')?.classList.add('recording');
-  }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
+  }).catch(err => {
+    console.error('Error al iniciar grabación:', err.name, err.message);
+    showToast('No se pudo acceder al micrófono: ' + err.name, 'error');
+    audioCancelar(); // cerrar la barra si falló
+  });
 }
 
 function mostrarBarraAudio() {
