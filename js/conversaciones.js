@@ -1121,8 +1121,9 @@ async function subirArchivo(file) {
 }
 
 // ════════════════════════════════════════════
-//  GRABADOR DE AUDIO — rediseño completo
-//  Onda real, pausa/reproducir, cortar, enviar
+//  GRABADOR DE AUDIO — rediseño
+//  Mic (input) = grabar/pausar/reanudar
+//  Panel: play/stop, onda con playhead, cortar, cancelar, enviar
 // ════════════════════════════════════════════
 let audMediaRecorder = null;
 let audStream        = null;
@@ -1137,102 +1138,110 @@ let audCtx           = null;
 let audAudioCtx      = null;
 let audAnalyser      = null;
 let audAnimFrame     = null;
-let audNiveles       = [];       // historial de intensidad para dibujar la onda
-let audPlayer        = null;     // elemento <audio> para reproducir en pausa
-let audCutTime       = null;     // punto de corte marcado al reproducir
+let audNiveles       = [];       // intensidad de voz por frame
+let audPlayer        = null;     // <audio> para reproducir
+let audReproducidoUnaVez = false;
 
-const AUD_MAX_BARS = 60;         // cuántas barras de onda mostrar
+const AUD_MAX_BARS = 64;
+
+// ── Botón micrófono de la barra de input: grabar / pausar / reanudar ──
+function audioMicToggle() {
+  if (audEstado === 'idle') {
+    iniciarAudio();
+  } else if (audEstado === 'grabando') {
+    pausarGrabacionAudio();
+  } else if (audEstado === 'pausado' || audEstado === 'reproduciendo') {
+    reanudarGrabacionAudio();
+  }
+}
+
+function setMicBtn(modo) {
+  // modo: 'mic' | 'pause'
+  const btn = document.getElementById('btn-audio');
+  if (!btn) return;
+  if (modo === 'pause') {
+    btn.innerHTML = '<i class="ti ti-player-pause-filled"></i>';
+    btn.title = 'Pausar grabación';
+    btn.classList.add('recording');
+  } else {
+    btn.innerHTML = '<i class="ti ti-microphone"></i>';
+    btn.title = 'Grabar / seguir grabando';
+    btn.classList.remove('recording');
+  }
+}
 
 function iniciarAudio() {
   if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showToast('Tu navegador no soporta grabación de audio', 'error');
-    console.error('getUserMedia no disponible');
-    return;
+    showToast('Tu navegador no soporta grabación de audio', 'error'); return;
   }
-
-  // Resetear estado y mostrar la barra YA (para feedback inmediato)
-  audChunks = []; audSeconds = 0; audNiveles = []; audCutTime = null;
+  audChunks = []; audSeconds = 0; audNiveles = []; audReproducidoUnaVez = false;
   audEstado = 'grabando';
   mostrarBarraAudio();
-  setBotonesAudio();
+  setMicBtn('pause');
+  setBotonesPanelAudio();
   actualizarTiempoAudio(0);
-  document.getElementById('btn-audio')?.classList.add('recording');
+  ocultarPlayhead();
 
   navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
   }).then(stream => {
     audStream = stream;
-
     const formatos = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm','audio/mp4'];
     audMime = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
-
     const opts = { audioBitsPerSecond: 24000 };
     if (audMime) opts.mimeType = audMime;
     audMediaRecorder = new MediaRecorder(stream, opts);
-
     audMediaRecorder.ondataavailable = e => { if (e.data.size > 0) audChunks.push(e.data); };
-    audMediaRecorder.onstop = () => {
-      const tipo = audMime || 'audio/webm';
-      audBlob = new Blob(audChunks, { type: tipo });
-    };
+    audMediaRecorder.onstop = () => { audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' }); };
     audMediaRecorder.start();
-
-    // Analizador para la onda real
-    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audAudioCtx.createMediaStreamSource(stream);
-    audAnalyser = audAudioCtx.createAnalyser();
-    audAnalyser.fftSize = 256;
-    source.connect(audAnalyser);
-
+    arrancarAnalisis(stream);
     iniciarTimerAudio();
     dibujarOndaEnVivo();
   }).catch(err => {
-    console.error('Error al iniciar grabación:', err.name, err.message);
+    console.error('Error micrófono:', err.name, err.message);
     showToast('No se pudo acceder al micrófono: ' + err.name, 'error');
-    audioCancelar(); // cerrar la barra si falló
+    audioCancelar();
   });
+}
+
+function arrancarAnalisis(stream) {
+  audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audAudioCtx.createMediaStreamSource(stream);
+  audAnalyser = audAudioCtx.createAnalyser();
+  audAnalyser.fftSize = 256;
+  source.connect(audAnalyser);
 }
 
 function mostrarBarraAudio() {
   document.getElementById('audio-bar')?.classList.add('active');
   audCanvas = document.getElementById('audio-canvas');
   if (audCanvas) {
-    // Ajustar resolución del canvas a su tamaño real
     const rect = audCanvas.getBoundingClientRect();
     audCanvas.width = rect.width * (window.devicePixelRatio || 1);
     audCanvas.height = rect.height * (window.devicePixelRatio || 1);
     audCtx = audCanvas.getContext('2d');
   }
-  setupCanvasSeek(); // asegurar que el click-para-reproducir esté activo
+  setupCanvasSeek();
 }
 
-function setBotonesAudio() {
-  const play  = document.getElementById('audio-btn-play');
-  const cut   = document.getElementById('audio-btn-cut');
-  const pause = document.getElementById('audio-btn-pause');
-  if (!pause) return;
-  if (audEstado === 'grabando') {
-    pause.innerHTML = '<i class="ti ti-player-pause"></i>'; pause.title = 'Pausar';
-    if (play) play.style.display = 'none';
-    if (cut)  cut.style.display  = 'none';
-  } else if (audEstado === 'pausado') {
-    pause.innerHTML = '<i class="ti ti-microphone"></i>'; pause.title = 'Seguir grabando';
-    if (play) play.style.display = 'flex';
-    if (cut)  cut.style.display  = 'none';   // el corte aparece al reproducir
-  } else if (audEstado === 'reproduciendo') {
-    if (play) { play.innerHTML = '<i class="ti ti-player-pause"></i>'; play.title = 'Pausar reproducción'; }
-    if (cut)  cut.style.display = 'flex';
+// Botones del panel: Play (play/stop), tijera, cancelar, enviar
+function setBotonesPanelAudio() {
+  const play = document.getElementById('audio-btn-play');
+  if (!play) return;
+  if (audEstado === 'reproduciendo') {
+    play.innerHTML = '<i class="ti ti-player-stop-filled"></i>';
+    play.title = 'Detener';
+  } else {
+    play.innerHTML = '<i class="ti ti-player-play-filled"></i>';
+    play.title = 'Reproducir';
   }
 }
 
 function iniciarTimerAudio() {
   clearInterval(audTimer);
   audTimer = setInterval(() => {
-    if (audEstado === 'grabando') {
-      audSeconds++;
-      actualizarTiempoAudio(audSeconds);
-    }
+    if (audEstado === 'grabando') { audSeconds++; actualizarTiempoAudio(audSeconds); }
   }, 1000);
 }
 
@@ -1242,47 +1251,35 @@ function actualizarTiempoAudio(seg) {
   if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
 }
 
-// ── ONDA EN VIVO (intensidad real de la voz) ──
+// ── ONDA EN VIVO ──
 function dibujarOndaEnVivo() {
   if (audEstado !== 'grabando' || !audAnalyser || !audCtx) return;
   const data = new Uint8Array(audAnalyser.frequencyBinCount);
   audAnalyser.getByteFrequencyData(data);
-  // Nivel promedio de intensidad
   let suma = 0;
   for (let i = 0; i < data.length; i++) suma += data[i];
-  const nivel = suma / data.length / 255; // 0..1
+  const nivel = suma / data.length / 255;
   audNiveles.push(nivel);
   if (audNiveles.length > AUD_MAX_BARS) audNiveles.shift();
-
-  pintarOnda(audNiveles, -1);
+  pintarOnda(audNiveles);
   audAnimFrame = requestAnimationFrame(dibujarOndaEnVivo);
 }
 
-// Dibuja las barras de la onda. progreso = índice hasta donde resaltar (reproducción)
-function pintarOnda(niveles, progresoIdx) {
+function pintarOnda(niveles) {
   if (!audCtx || !audCanvas) return;
   const w = audCanvas.width, h = audCanvas.height;
   audCtx.clearRect(0, 0, w, h);
-  const n = niveles.length || 1;
   const barW = w / AUD_MAX_BARS;
-  const gap = barW * 0.35;
+  const gap = barW * 0.4;
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#16a34a';
-
+  audCtx.fillStyle = accent;
   for (let i = 0; i < niveles.length; i++) {
-    const nivel = niveles[i];
-    // altura mínima (línea plana si no hay sonido) y máxima
-    const bh = Math.max(h * 0.06, nivel * h * 0.9);
+    const bh = Math.max(h * 0.08, niveles[i] * h * 0.92);
     const x = i * barW + gap/2;
     const y = (h - bh) / 2;
-    // color: resaltado si ya se reprodujo, atenuado si falta
-    if (progresoIdx >= 0) {
-      audCtx.fillStyle = (i <= progresoIdx) ? accent : 'rgba(150,150,150,0.4)';
-    } else {
-      audCtx.fillStyle = accent;
-    }
     audCtx.beginPath();
-    const r = Math.min(barW/2, bh/2, 3 * (window.devicePixelRatio||1));
-    roundRect(audCtx, x, y, barW - gap, bh, r);
+    const r = Math.min((barW-gap)/2, bh/2, 2.5 * (window.devicePixelRatio||1));
+    roundRect(audCtx, x, y, Math.max(1, barW - gap), bh, r);
     audCtx.fill();
   }
 }
@@ -1295,41 +1292,27 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
 }
 
-// ── PAUSAR / SEGUIR GRABANDO ──
-function audioTogglePausa() {
-  if (audEstado === 'grabando') {
-    // Pausar: detener grabación y preparar reproducción
-    pausarGrabacionAudio();
-  } else if (audEstado === 'pausado' || audEstado === 'reproduciendo') {
-    // Seguir grabando: reanudar desde donde quedó
-    reanudarGrabacionAudio();
-  }
-}
-
+// ── PAUSAR / REANUDAR (desde el micrófono) ──
 function pausarGrabacionAudio() {
   if (!audMediaRecorder || audMediaRecorder.state === 'inactive') return;
   cancelAnimationFrame(audAnimFrame);
   clearInterval(audTimer);
-
-  // Detener para consolidar el blob hasta acá
   audMediaRecorder.onstop = () => {
-    const tipo = audMime || 'audio/webm';
-    audBlob = new Blob(audChunks, { type: tipo });
+    audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' });
     audEstado = 'pausado';
-    setBotonesAudio();
-    // Preparar player para escuchar
+    setMicBtn('mic');
+    setBotonesPanelAudio();
     prepararPlayerAudio();
-    // Dibujar la onda completa (estática) de lo grabado
-    pintarOnda(audNiveles, -1);
+    pintarOnda(audNiveles);
   };
   audMediaRecorder.stop();
   if (audStream) audStream.getTracks().forEach(t => t.stop());
+  if (audAudioCtx) { try { audAudioCtx.close(); } catch(e){} }
 }
 
 function reanudarGrabacionAudio() {
-  // Volvemos a grabar: continuamos acumulando en audChunks
-  // (Se recrea el stream y el recorder, los chunks se concatenan)
   if (audPlayer) { audPlayer.pause(); }
+  ocultarPlayhead();
   navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
   }).then(stream => {
@@ -1338,120 +1321,147 @@ function reanudarGrabacionAudio() {
     if (audMime) opts.mimeType = audMime;
     audMediaRecorder = new MediaRecorder(stream, opts);
     audMediaRecorder.ondataavailable = e => { if (e.data.size > 0) audChunks.push(e.data); };
-    audMediaRecorder.onstop = () => {
-      const tipo = audMime || 'audio/webm';
-      audBlob = new Blob(audChunks, { type: tipo });
-    };
+    audMediaRecorder.onstop = () => { audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' }); };
     audMediaRecorder.start();
-
-    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audAudioCtx.createMediaStreamSource(stream);
-    audAnalyser = audAudioCtx.createAnalyser();
-    audAnalyser.fftSize = 256;
-    source.connect(audAnalyser);
-
+    arrancarAnalisis(stream);
     audEstado = 'grabando';
-    setBotonesAudio();
+    audReproducidoUnaVez = false;
+    setMicBtn('pause');
+    setBotonesPanelAudio();
     iniciarTimerAudio();
     dibujarOndaEnVivo();
   }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
 }
 
-// ── REPRODUCIR EN PAUSA ──
+// ── REPRODUCIR (Play/Stop del panel) ──
 function prepararPlayerAudio() {
   if (!audBlob) return;
   if (!audPlayer) audPlayer = new Audio();
   audPlayer.src = URL.createObjectURL(audBlob);
   audPlayer.onended = () => {
     audEstado = 'pausado';
-    setBotonesAudio();
+    setBotonesPanelAudio();
+    ocultarPlayhead();
     actualizarTiempoAudio(audSeconds);
   };
   audPlayer.ontimeupdate = () => {
-    if (audPlayer.duration) {
+    if (audPlayer.duration && isFinite(audPlayer.duration)) {
       const frac = audPlayer.currentTime / audPlayer.duration;
-      const idx = Math.floor(frac * audNiveles.length);
-      pintarOnda(audNiveles, idx);
+      moverPlayhead(frac);
       actualizarTiempoAudio(audPlayer.currentTime);
-      audCutTime = audPlayer.currentTime;
     }
   };
 }
 
 function audioReproducir() {
+  if (audEstado === 'grabando') return; // primero pausar
   if (!audPlayer) prepararPlayerAudio();
+  if (!audPlayer) return;
+
   if (audEstado === 'reproduciendo') {
+    // Stop: detener donde esté
     audPlayer.pause();
     audEstado = 'pausado';
-    setBotonesAudio();
+    setBotonesPanelAudio();
   } else {
+    // Play: 1ra vez desde el principio; luego desde donde quedó
+    if (!audReproducidoUnaVez) {
+      audPlayer.currentTime = 0;
+      audReproducidoUnaVez = true;
+    }
     audEstado = 'reproduciendo';
-    setBotonesAudio();
+    setBotonesPanelAudio();
+    mostrarPlayhead();
     audPlayer.play();
   }
 }
 
-// Click en la onda → reproducir desde ese punto
-function setupCanvasSeek() {
-  const canvas = document.getElementById('audio-canvas');
-  if (!canvas || canvas._seekSet) return;
-  canvas._seekSet = true;
-  canvas.addEventListener('click', (e) => {
-    if (audEstado !== 'pausado' && audEstado !== 'reproduciendo') return;
-    if (!audPlayer || !audPlayer.duration) return;
-    const rect = canvas.getBoundingClientRect();
-    const frac = (e.clientX - rect.left) / rect.width;
-    audPlayer.currentTime = frac * audPlayer.duration;
-    audCutTime = audPlayer.currentTime;
-    if (audEstado !== 'reproduciendo') {
-      audEstado = 'reproduciendo';
-      setBotonesAudio();
-      audPlayer.play();
-    }
-  });
+// ── PLAYHEAD (barra vertical sobre la onda) ──
+function mostrarPlayhead() {
+  document.getElementById('audio-playhead')?.classList.add('active');
+}
+function ocultarPlayhead() {
+  const ph = document.getElementById('audio-playhead');
+  if (ph) { ph.classList.remove('active'); ph.style.left = '0'; }
+}
+function moverPlayhead(frac) {
+  const ph = document.getElementById('audio-playhead');
+  const wrap = document.getElementById('audio-wave-wrap');
+  if (ph && wrap) {
+    frac = Math.max(0, Math.min(1, frac));
+    ph.style.left = (frac * wrap.clientWidth) + 'px';
+  }
 }
 
-// ── CORTAR desde el punto de reproducción ──
+// Click / arrastre en la onda para desplazarse
+function setupCanvasSeek() {
+  const wrap = document.getElementById('audio-wave-wrap');
+  if (!wrap || wrap._seekSet) return;
+  wrap._seekSet = true;
+
+  const seek = (clientX) => {
+    if (audEstado === 'grabando' || audEstado === 'idle') return;
+    if (!audPlayer || !audPlayer.duration || !isFinite(audPlayer.duration)) return;
+    const rect = wrap.getBoundingClientRect();
+    let frac = (clientX - rect.left) / rect.width;
+    frac = Math.max(0, Math.min(1, frac));
+    audPlayer.currentTime = frac * audPlayer.duration;
+    audReproducidoUnaVez = true;
+    moverPlayhead(frac);
+    mostrarPlayhead();
+    actualizarTiempoAudio(audPlayer.currentTime);
+  };
+
+  let arrastrando = false;
+  wrap.addEventListener('mousedown', e => { arrastrando = true; seek(e.clientX); });
+  window.addEventListener('mousemove', e => { if (arrastrando) seek(e.clientX); });
+  window.addEventListener('mouseup', () => { arrastrando = false; });
+  // Touch
+  wrap.addEventListener('touchstart', e => { seek(e.touches[0].clientX); }, {passive:true});
+  wrap.addEventListener('touchmove', e => { seek(e.touches[0].clientX); }, {passive:true});
+}
+
+// ── CORTAR desde el playhead (elimina lo posterior) ──
 async function audioCortar() {
-  if (!audBlob || audCutTime == null) { showToast('Reproducí y pausá donde querés cortar', 'warn'); return; }
+  if (!audBlob) { showToast('Primero grabá y pausá el audio', 'warn'); return; }
+  if (!audPlayer || !audPlayer.duration || !isFinite(audPlayer.duration)) {
+    showToast('Reproducí para marcar el punto de corte', 'warn'); return;
+  }
+  const cutTime = audPlayer.currentTime;
+  if (cutTime <= 0.1) { showToast('Movés el cursor al punto de corte', 'warn'); return; }
   if (audPlayer) audPlayer.pause();
-  showToast('Cortando audio...', 'warn');
+  showToast('Cortando...', 'warn');
   try {
-    // Decodificar el audio y quedarse solo con la parte hasta audCutTime
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const arrBuf = await audBlob.arrayBuffer();
-    const decoded = await ctx.decodeAudioData(arrBuf);
-    const sampleRate = decoded.sampleRate;
-    const finFrame = Math.floor(audCutTime * sampleRate);
-    const recortado = ctx.createBuffer(decoded.numberOfChannels, finFrame, sampleRate);
+    const decoded = await ctx.decodeAudioData(await audBlob.arrayBuffer());
+    const sr = decoded.sampleRate;
+    const finFrame = Math.floor(cutTime * sr);
+    const recortado = ctx.createBuffer(decoded.numberOfChannels, finFrame, sr);
     for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
       recortado.copyToChannel(decoded.getChannelData(ch).slice(0, finFrame), ch);
     }
-    // Re-grabar el buffer recortado a webm/opus mediante un stream
-    const blobRecortado = await bufferAOpusBlob(recortado, ctx);
-    if (blobRecortado) {
-      audBlob = blobRecortado;
-      // Ajustar niveles de onda al nuevo largo
-      const frac = audCutTime / (decoded.duration || 1);
-      const nuevoLargo = Math.max(1, Math.floor(audNiveles.length * frac));
-      audNiveles = audNiveles.slice(0, nuevoLargo);
-      audSeconds = audCutTime;
-      audCutTime = null;
+    const blobRec = await bufferAOpusBlob(recortado, ctx);
+    if (blobRec) {
+      audBlob = blobRec;
+      const frac = cutTime / (decoded.duration || 1);
+      audNiveles = audNiveles.slice(0, Math.max(1, Math.floor(audNiveles.length * frac)));
+      audSeconds = Math.floor(cutTime);
+      audReproducidoUnaVez = false;
       prepararPlayerAudio();
-      pintarOnda(audNiveles, -1);
+      pintarOnda(audNiveles);
       actualizarTiempoAudio(audSeconds);
+      ocultarPlayhead();
       audEstado = 'pausado';
-      setBotonesAudio();
+      setBotonesPanelAudio();
       showToast('Audio cortado');
     }
     ctx.close();
   } catch(e) {
-    console.error('Error al cortar audio:', e);
+    console.error('Error al cortar:', e);
     showToast('No se pudo cortar el audio', 'error');
   }
 }
 
-// Convierte un AudioBuffer a un Blob webm/opus re-grabándolo
 function bufferAOpusBlob(buffer, ctx) {
   return new Promise((resolve) => {
     try {
@@ -1468,23 +1478,15 @@ function bufferAOpusBlob(buffer, ctx) {
       rec.start();
       src.start();
       src.onended = () => setTimeout(() => rec.stop(), 100);
-    } catch(e) {
-      console.error('bufferAOpusBlob error:', e);
-      resolve(null);
-    }
+    } catch(e) { console.error('bufferAOpusBlob:', e); resolve(null); }
   });
 }
 
 // ── ENVIAR ──
 async function audioEnviar() {
-  // Si está grabando, primero detener
   if (audEstado === 'grabando') {
     await new Promise(res => {
-      audMediaRecorder.onstop = () => {
-        const tipo = audMime || 'audio/webm';
-        audBlob = new Blob(audChunks, { type: tipo });
-        res();
-      };
+      audMediaRecorder.onstop = () => { audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' }); res(); };
       cancelAnimationFrame(audAnimFrame);
       clearInterval(audTimer);
       audMediaRecorder.stop();
@@ -1509,7 +1511,6 @@ async function audioEnviar() {
   renderMensajes(phone);
   showToast('Procesando audio...', 'warn');
 
-  // Remux a OGG/Opus para nota de voz
   let blobFinal = blobAudio;
   if (!tipoReal.includes('ogg')) {
     try {
@@ -1527,11 +1528,8 @@ async function audioEnviar() {
     msg.url = r2url; msg.nombre = nombre;
     renderMensajes(phone);
     const resp = await enviarPorWhatsApp(phone, r2url, 'audio');
-    if (resp && resp.error) {
-      showToast('WhatsApp rechazó el audio: ' + (resp.error.message||''), 'error');
-    } else {
-      showToast('Audio enviado');
-    }
+    if (resp && resp.error) showToast('WhatsApp rechazó el audio: ' + (resp.error.message||''), 'error');
+    else showToast('Audio enviado');
   } else {
     showToast('No se pudo subir el audio', 'error');
   }
@@ -1540,32 +1538,32 @@ async function audioEnviar() {
 
 // ── CANCELAR ──
 function audioCancelar() {
-  if (audMediaRecorder && audMediaRecorder.state !== 'inactive') {
-    try { audMediaRecorder.stop(); } catch(e) {}
-  }
+  if (audMediaRecorder && audMediaRecorder.state !== 'inactive') { try { audMediaRecorder.stop(); } catch(e){} }
   if (audStream) audStream.getTracks().forEach(t => t.stop());
   if (audPlayer) { audPlayer.pause(); audPlayer.src = ''; }
-  if (audAudioCtx) { try { audAudioCtx.close(); } catch(e) {} }
+  if (audAudioCtx) { try { audAudioCtx.close(); } catch(e){} }
   cancelAnimationFrame(audAnimFrame);
   clearInterval(audTimer);
   audChunks = []; audBlob = null; audSeconds = 0; audNiveles = [];
-  audEstado = 'idle'; audCutTime = null;
+  audEstado = 'idle'; audReproducidoUnaVez = false;
   document.getElementById('audio-bar')?.classList.remove('active');
-  document.getElementById('btn-audio')?.classList.remove('recording');
+  setMicBtn('mic');
+  ocultarPlayhead();
   actualizarTiempoAudio(0);
 }
 
-// Inicializar el seek del canvas cuando carga la página
 document.addEventListener('DOMContentLoaded', () => setupCanvasSeek());
 
-// Aliases de compatibilidad con llamadas viejas
-function pausarAudio() { audioTogglePausa(); }
+// Aliases de compatibilidad
+function pausarAudio() { audioMicToggle(); }
 function cancelarAudio() { audioCancelar(); }
 function enviarAudioPausado() { audioEnviar(); }
-function toggleAudio() { iniciarAudio(); }
+function toggleAudio() { audioMicToggle(); }
+function audioTogglePausa() { audioMicToggle(); }
 function confirmarEnvioAudio() { audioEnviar(); }
 function cancelarPreviewAudio() { audioCancelar(); }
-function detenerYPrevisualizar() { audioTogglePausa(); }
+function detenerYPrevisualizar() { audioMicToggle(); }
+
 
 // ── BUSCAR EN CHAT ──
 function buscarEnChat() {
