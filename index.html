@@ -134,25 +134,20 @@
         <!-- Input wrapper FIJO — nunca se mueve -->
         <div class="chat-input-wrapper" id="chat-input-wrapper">
 
-          <!-- Barra de grabación activa -->
-          <div class="audio-recording-bar" id="audio-recording-bar">
-            <div class="audio-rec-dot"></div>
-            <span class="audio-rec-time" id="audio-rec-time">0:00</span>
-            <div class="audio-waveform" id="audio-waveform">
-              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-              <div class="audio-wave-bar"></div><div class="audio-wave-bar"></div>
-            </div>
-            <button class="chat-input-btn" title="Pausar y escuchar" id="btn-pause-audio" onclick="pausarAudio()"><i class="ti ti-player-pause"></i></button>
-            <button class="chat-input-btn" title="Cancelar" onclick="cancelarAudio()" style="color:var(--accent)"><i class="ti ti-x"></i></button>
-          </div>
-
-          <!-- Barra pausado: player + Cancelar + Enviar -->
-          <div class="audio-paused-bar" id="audio-paused-bar">
-            <audio id="audio-paused-player" controls style="flex:1;height:32px;min-width:0;"></audio>
-            <button class="btn btn-success btn-sm" onclick="enviarAudioPausado()"><i class="ti ti-send"></i> Enviar</button>
-            <button class="btn btn-secondary btn-sm" onclick="cancelarAudio()"><i class="ti ti-trash"></i> Cancelar</button>
+          <!-- Barra de audio unificada (grabando / pausado) -->
+          <div class="audio-bar" id="audio-bar">
+            <button class="audio-btn-cancel" title="Cancelar" onclick="audioCancelar()"><i class="ti ti-x"></i></button>
+            <span class="audio-time" id="audio-time">0:00</span>
+            <!-- Botón Play (solo visible en pausa para escuchar) -->
+            <button class="audio-btn-play" id="audio-btn-play" title="Escuchar" onclick="audioReproducir()" style="display:none;"><i class="ti ti-player-play"></i></button>
+            <!-- Canvas de la onda sonora (en vivo o de reproducción) -->
+            <canvas id="audio-canvas" class="audio-canvas"></canvas>
+            <!-- Botón Cortar (solo en pausa, tras reproducir) -->
+            <button class="audio-btn-cut" id="audio-btn-cut" title="Cortar desde aquí" onclick="audioCortar()" style="display:none;"><i class="ti ti-cut"></i></button>
+            <!-- Botón Pausar / Seguir grabando -->
+            <button class="audio-btn-pause" id="audio-btn-pause" title="Pausar" onclick="audioTogglePausa()"><i class="ti ti-player-pause"></i></button>
+            <!-- Botón Enviar -->
+            <button class="audio-btn-send" title="Enviar" onclick="audioEnviar()"><i class="ti ti-send"></i></button>
           </div>
 
           <!-- Panel emoticones -->
