@@ -458,40 +458,52 @@ body {
 }
 .send-btn:hover { background: var(--accent2); }
 
-/* ── GRABADOR DE AUDIO — flujo simplificado ── */
-/* Paso 1: Grabando */
-.audio-recording-bar {
+/* ── GRABADOR DE AUDIO — barra unificada ── */
+.audio-bar {
   display: none; padding: 10px 14px; align-items: center; gap: 10px;
   border-top: 1px solid var(--border);
+  background: linear-gradient(to bottom, var(--bg2), var(--bg3));
 }
-.audio-recording-bar.active { display: flex; }
-.audio-waveform {
-  flex: 1; height: 36px; background: var(--bg3); border-radius: 20px;
-  display: flex; align-items: center; justify-content: center; gap: 2px;
-  overflow: hidden; padding: 0 12px;
+.audio-bar.active { display: flex; }
+.audio-wave-wrap {
+  flex: 1; position: relative; min-width: 0; height: 40px;
+  background: var(--bg); border-radius: 20px; overflow: hidden;
+  border: 1px solid var(--border);
 }
-.audio-wave-bar {
-  width: 3px; background: var(--accent); border-radius: 2px;
-  animation: wave-anim 0.6s ease-in-out infinite alternate;
+.audio-canvas {
+  width: 100%; height: 100%; display: block; cursor: pointer;
 }
-.audio-wave-bar.paused { animation-play-state: paused; }
-.audio-wave-bar:nth-child(2){animation-delay:0.1s}
-.audio-wave-bar:nth-child(3){animation-delay:0.2s}
-.audio-wave-bar:nth-child(4){animation-delay:0.3s}
-.audio-wave-bar:nth-child(5){animation-delay:0.15s}
-.audio-wave-bar:nth-child(6){animation-delay:0.05s}
-.audio-wave-bar:nth-child(7){animation-delay:0.25s}
-.audio-wave-bar:nth-child(8){animation-delay:0.35s}
-@keyframes wave-anim { from{height:6px} to{height:28px} }
-.audio-rec-time { font-family: var(--font-mono); font-size:13px; color:var(--accent); font-weight:600; min-width:44px; }
-.audio-rec-dot { width:10px;height:10px;border-radius:50%;background:var(--accent);animation:pulse-rec 1s infinite;flex-shrink:0; }
-
-/* Paso 2: Pausado — mostrar player + Cancelar/Enviar */
-.audio-paused-bar {
-  display: none; padding: 10px 14px; align-items: center; gap: 8px;
-  border-top: 1px solid var(--border); flex-wrap: wrap;
+.audio-playhead {
+  position: absolute; top: 0; width: 2px; height: 100%;
+  background: #ff3b30; left: 0; display: none; pointer-events: none;
+  box-shadow: 0 0 4px rgba(255,59,48,0.6);
 }
-.audio-paused-bar.active { display: flex; }
+.audio-playhead.active { display: block; }
+.audio-time {
+  font-family: var(--font-mono); font-size: 13px; color: var(--accent);
+  font-weight: 700; min-width: 42px; text-align: center;
+}
+.audio-btn-cancel, .audio-btn-play, .audio-btn-cut, .audio-btn-send {
+  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  font-size: 18px; transition: transform 0.1s, background 0.15s;
+}
+.audio-btn-cancel:active, .audio-btn-play:active,
+.audio-btn-cut:active, .audio-btn-send:active { transform: scale(0.9); }
+.audio-btn-cancel { background: var(--bg2); color: var(--text2); }
+.audio-btn-play   { background: var(--bg2); color: var(--accent); border: 1px solid var(--border); }
+.audio-btn-cut    { background: #fff0f0; color: #e0352b; }
+.audio-btn-send   { background: var(--accent); color: #fff; }
+/* Micrófono de la barra de input en modo grabando = pausa */
+.chat-input-btn.recording {
+  background: var(--accent); color: #fff; border-radius: 50%;
+  animation: micPulse 1.4s ease-out infinite;
+}
+@keyframes micPulse {
+  0% { box-shadow: 0 0 0 0 rgba(22,163,74,0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
+  100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+}
 
 /* Emoticones */
 .emoji-panel {
