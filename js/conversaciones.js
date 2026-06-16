@@ -1646,13 +1646,22 @@ async function audioEnviar() {
   renderMensajes(phone);
   showToast('Procesando audio...', 'warn');
 
+  // Recodificar a OGG/Opus modo VOICE 16kHz para que WhatsApp lo muestre
+  // como NOTA DE VOZ (no como adjunto). Usa opus-recorder (WASM liviano).
   let blobFinal = blobAudio;
-  if (!tipoReal.includes('ogg')) {
+  try {
+    const oggVoz = await recodificarAOpusVoz(blobAudio);
+    if (oggVoz) blobFinal = oggVoz;
+    else if (typeof webmBlobToOggBlob === 'function' && tipoReal.includes('webm')) {
+      blobFinal = await webmBlobToOggBlob(blobAudio, 1); // fallback al remux
+    }
+  } catch(e) {
+    console.warn('No se pudo recodificar a voz, usando fallback:', e);
     try {
       if (typeof webmBlobToOggBlob === 'function' && tipoReal.includes('webm')) {
         blobFinal = await webmBlobToOggBlob(blobAudio, 1);
       }
-    } catch(e) { console.warn('No se pudo remuxear:', e); blobFinal = blobAudio; }
+    } catch(e2) { blobFinal = blobAudio; }
   }
   const nombre = `audio_${Date.now()}.ogg`;
   showToast('Subiendo audio...', 'warn');
@@ -1669,6 +1678,60 @@ async function audioEnviar() {
     showToast('No se pudo subir el audio', 'error');
   }
   guardarMensajes(phone);
+}
+
+// Recodifica un blob de audio a OGG/Opus en modo VOICE a 16kHz,
+// que es el formato que WhatsApp reconoce como NOTA DE VOZ.
+// Usa la librería opus-recorder (global "Recorder").
+async function recodificarAOpusVoz(blob) {
+  if (typeof Recorder === 'undefined') {
+    console.warn('opus-recorder no está cargado');
+    return null;
+  }
+  // 1) Decodificar el audio a PCM
+  const actx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBuffer = await actx.decodeAudioData(await blob.arrayBuffer());
+
+  // 2) Crear un source del buffer y conectarlo a un Recorder en modo Voice
+  return new Promise((resolve) => {
+    try {
+      const source = actx.createBufferSource();
+      source.buffer = audioBuffer;
+
+      const rec = new Recorder({
+        encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
+        encoderApplication: 2048,   // 2048 = Voice (SILK) → nota de voz
+        encoderSampleRate: 16000,   // 16 kHz como WhatsApp
+        originalSampleRateOverride: 16000,
+        numberOfChannels: 1,
+        streamPages: false,
+        sourceNode: source,         // grabar desde el buffer, no del micrófono
+        monitorGain: 0,
+        recordingGain: 1
+      });
+
+      rec.ondataavailable = (typedArray) => {
+        const oggBlob = new Blob([typedArray], { type: 'audio/ogg' });
+        try { actx.close(); } catch(e){}
+        resolve(oggBlob);
+      };
+
+      rec.start().then(() => {
+        source.start(0);
+        // Detener cuando termine el buffer
+        const durMs = (audioBuffer.duration * 1000) + 150;
+        setTimeout(() => { rec.stop(); }, durMs);
+      }).catch(err => {
+        console.warn('Recorder.start falló:', err);
+        try { actx.close(); } catch(e){}
+        resolve(null);
+      });
+    } catch(e) {
+      console.warn('Error recodificando a voz:', e);
+      try { actx.close(); } catch(e){}
+      resolve(null);
+    }
+  });
 }
 
 // ── CANCELAR ──
