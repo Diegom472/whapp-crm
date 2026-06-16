@@ -1711,11 +1711,9 @@ async function recodificarAOpusVoz(blob) {
       });
 
       rec.ondataavailable = (typedArray) => {
-        let bytes = new Uint8Array(typedArray);
-        // Parchear el pre-skip del OpusHead para que coincida con notas de voz reales.
-        // opus-recorder pone un pre-skip alto (3840); WhatsApp usa ~104.
-        bytes = parchearPreSkip(bytes, 104);
-        const oggBlob = new Blob([bytes], { type: 'audio/ogg' });
+        // Sin parcheo de pre-skip (puede afectar la duración).
+        // Con voice:true en el Worker, ya llega como nota de voz.
+        const oggBlob = new Blob([typedArray], { type: 'audio/ogg' });
         try { actx.close(); } catch(e){}
         resolve(oggBlob);
       };
@@ -1753,12 +1751,11 @@ function parchearPreSkip(bytes, nuevoPreSkip) {
   bytes[headIdx+10] = nuevoPreSkip & 0xFF;
   bytes[headIdx+11] = (nuevoPreSkip >> 8) & 0xFF;
 
-  // El OpusHead está dentro de la primera página OGG (que empieza con "OggS").
-  // Buscar el inicio de esa página (el OggS justo antes del OpusHead).
+  // Buscar el inicio de la página OGG (OggS) que contiene este OpusHead
   let pageStart = -1;
-  for (let i = headIdx; i >= 3; i--) {
-    if (bytes[i-1]===0x4f && bytes[i]===0x67 && bytes[i+1]===0x67 && bytes[i+2]===0x53) {
-      pageStart = i-1; break;
+  for (let i = headIdx; i >= 0; i--) {
+    if (bytes[i]===0x4f && bytes[i+1]===0x67 && bytes[i+2]===0x67 && bytes[i+3]===0x53) {
+      pageStart = i; break;
     }
   }
   if (pageStart < 0) return bytes;
@@ -1773,19 +1770,23 @@ function parchearPreSkip(bytes, nuevoPreSkip) {
   bytes[pageStart+22] = 0; bytes[pageStart+23] = 0;
   bytes[pageStart+24] = 0; bytes[pageStart+25] = 0;
 
-  // Recalcular CRC32 (polinomio Ogg 0x04c11db7, sin reflejar)
+  // Recalcular CRC32 (polinomio Ogg 0x04c11db7). Forzar aritmética >>>0 en CADA paso
+  // (clave en JS: el operador << puede dar negativos y desajustar el cálculo).
   let crc = 0;
   for (let i = pageStart; i < pageStart + pageLen; i++) {
-    crc ^= bytes[i] << 24;
+    crc = (crc ^ ((bytes[i] << 24) >>> 0)) >>> 0;
     for (let j = 0; j < 8; j++) {
-      crc = (crc & 0x80000000) ? ((crc << 1) ^ 0x04c11db7) : (crc << 1);
-      crc = crc >>> 0;
+      if (crc & 0x80000000) {
+        crc = (((crc << 1) >>> 0) ^ 0x04c11db7) >>> 0;
+      } else {
+        crc = (crc << 1) >>> 0;
+      }
     }
   }
   bytes[pageStart+22] = crc & 0xFF;
-  bytes[pageStart+23] = (crc >> 8) & 0xFF;
-  bytes[pageStart+24] = (crc >> 16) & 0xFF;
-  bytes[pageStart+25] = (crc >> 24) & 0xFF;
+  bytes[pageStart+23] = (crc >>> 8) & 0xFF;
+  bytes[pageStart+24] = (crc >>> 16) & 0xFF;
+  bytes[pageStart+25] = (crc >>> 24) & 0xFF;
   return bytes;
 }
 
