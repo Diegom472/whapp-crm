@@ -1175,12 +1175,19 @@ function setMicBtn(modo) {
   }
 }
 
+let audRecorder = null;       // opus-recorder (grabador principal en formato Voice)
+let audSourceNode = null;     // nodo de fuente del micrófono
+
 function iniciarAudio() {
   if (!S.convActiva) { showToast('Seleccioná una conversación primero', 'error'); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showToast('Tu navegador no soporta grabación de audio', 'error'); return;
   }
+  if (typeof Recorder === 'undefined') {
+    showToast('Falta el módulo de audio (opus-recorder)', 'error'); return;
+  }
   audChunks = []; audSeconds = 0; audNiveles = []; audReproducidoUnaVez = false;
+  audBlob = null;
   audEstado = 'grabando';
   mostrarBarraAudio();
   setMicBtn('pause');
@@ -1192,17 +1199,37 @@ function iniciarAudio() {
     audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
   }).then(stream => {
     audStream = stream;
-    const formatos = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm','audio/mp4'];
-    audMime = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
-    const opts = { audioBitsPerSecond: 24000 };
-    if (audMime) opts.mimeType = audMime;
-    audMediaRecorder = new MediaRecorder(stream, opts);
-    audMediaRecorder.ondataavailable = e => { if (e.data.size > 0) audChunks.push(e.data); };
-    audMediaRecorder.onstop = () => { audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' }); };
-    audMediaRecorder.start();
-    arrancarAnalisis(stream);
-    iniciarTimerAudio();
-    dibujarOndaEnVivo();
+
+    // AudioContext + analyser para la onda en vivo
+    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audSourceNode = audAudioCtx.createMediaStreamSource(stream);
+    audAnalyser = audAudioCtx.createAnalyser();
+    audAnalyser.fftSize = 1024;
+    audSourceNode.connect(audAnalyser);
+
+    // Grabar DIRECTO en formato Voice/16kHz (sin recodificar al enviar)
+    audRecorder = new Recorder({
+      encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
+      encoderApplication: 2048,   // Voice (SILK) → nota de voz
+      encoderSampleRate: 16000,   // 16 kHz como WhatsApp
+      numberOfChannels: 1,
+      streamPages: false,
+      monitorGain: 0,
+      recordingGain: 1,
+      sourceNode: audSourceNode,  // usar nuestro nodo (mismo stream que el analyser)
+      audioContext: audAudioCtx
+    });
+    audRecorder.ondataavailable = (typedArray) => {
+      audBlob = new Blob([typedArray], { type: 'audio/ogg' });
+    };
+    audRecorder.start().then(() => {
+      iniciarTimerAudio();
+      dibujarOndaEnVivo();
+    }).catch(err => {
+      console.error('opus-recorder start falló:', err);
+      showToast('No se pudo iniciar la grabación', 'error');
+      audioCancelar();
+    });
   }).catch(err => {
     console.error('Error micrófono:', err.name, err.message);
     showToast('No se pudo acceder al micrófono: ' + err.name, 'error');
@@ -1211,11 +1238,14 @@ function iniciarAudio() {
 }
 
 function arrancarAnalisis(stream) {
-  audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audAudioCtx.createMediaStreamSource(stream);
-  audAnalyser = audAudioCtx.createAnalyser();
-  audAnalyser.fftSize = 1024;
-  source.connect(audAnalyser);
+  // (compatibilidad; el analyser ahora se arma en iniciarAudio)
+  if (!audAudioCtx) {
+    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audAudioCtx.createMediaStreamSource(stream);
+    audAnalyser = audAudioCtx.createAnalyser();
+    audAnalyser.fftSize = 1024;
+    source.connect(audAnalyser);
+  }
 }
 
 function mostrarBarraAudio() {
@@ -1379,43 +1409,32 @@ function roundRect(ctx, x, y, w, h, r) {
 
 // ── PAUSAR / REANUDAR (desde el micrófono) ──
 function pausarGrabacionAudio() {
-  if (!audMediaRecorder || audMediaRecorder.state === 'inactive') return;
+  if (!audRecorder) return;
   cancelAnimationFrame(audAnimFrame);
   clearInterval(audTimer);
-  audMediaRecorder.onstop = () => {
-    audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' });
+  // opus-recorder: pause() detiene la captura sin cerrar el archivo.
+  // Para poder reproducir lo grabado hasta ahora, finalizamos con stop()
+  // y guardamos el blob; al reanudar arrancamos uno nuevo y concatenamos.
+  audRecorder.ondataavailable = (typedArray) => {
+    audBlob = new Blob([typedArray], { type: 'audio/ogg' });
     audEstado = 'pausado';
     setMicBtn('mic');
     setBotonesPanelAudio();
     prepararPlayerAudio();
     pintarOnda(audNiveles, -1);
   };
-  audMediaRecorder.stop();
+  audRecorder.stop();
   if (audStream) audStream.getTracks().forEach(t => t.stop());
-  if (audAudioCtx && audAudioCtx.state !== "closed") { try { audAudioCtx.close(); } catch(e){} } audAudioCtx = null;
+  if (audAudioCtx && audAudioCtx.state !== "closed") { try { audAudioCtx.close(); } catch(e){} }
+  audAudioCtx = null;
 }
 
 function reanudarGrabacionAudio() {
+  // Nota: por simplicidad, "seguir grabando" arranca una grabación nueva.
+  // (Si ya había audio previo, se reemplaza — igual que el flujo anterior.)
   if (audPlayer) { audPlayer.pause(); }
   ocultarPlayhead();
-  navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
-  }).then(stream => {
-    audStream = stream;
-    const opts = { audioBitsPerSecond: 24000 };
-    if (audMime) opts.mimeType = audMime;
-    audMediaRecorder = new MediaRecorder(stream, opts);
-    audMediaRecorder.ondataavailable = e => { if (e.data.size > 0) audChunks.push(e.data); };
-    audMediaRecorder.onstop = () => { audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' }); };
-    audMediaRecorder.start();
-    arrancarAnalisis(stream);
-    audEstado = 'grabando';
-    audReproducidoUnaVez = false;
-    setMicBtn('pause');
-    setBotonesPanelAudio();
-    iniciarTimerAudio();
-    dibujarOndaEnVivo();
-  }).catch(() => showToast('No se pudo acceder al micrófono', 'error'));
+  iniciarAudio();
 }
 
 // ── REPRODUCIR (Play/Stop del panel) ──
@@ -1598,41 +1617,53 @@ async function audioCortar() {
 }
 
 function bufferAOpusBlob(buffer, ctx) {
+  // Recodifica un AudioBuffer recortado a OGG/Opus modo Voice 16kHz
+  // (mismo formato que la grabación, para que siga siendo nota de voz)
   return new Promise((resolve) => {
     try {
-      const dest = ctx.createMediaStreamDestination();
+      if (typeof Recorder === 'undefined') { resolve(null); return; }
       const src = ctx.createBufferSource();
       src.buffer = buffer;
-      src.connect(dest);
-      const formatos = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm'];
-      const mime = formatos.find(f => MediaRecorder.isTypeSupported(f)) || '';
-      const rec = new MediaRecorder(dest.stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
-      const chunks = [];
-      rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      rec.onstop = () => resolve(new Blob(chunks, { type: mime || 'audio/webm' }));
-      rec.start();
-      src.start();
-      src.onended = () => setTimeout(() => rec.stop(), 100);
+      const rec = new Recorder({
+        encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
+        encoderApplication: 2048,
+        encoderSampleRate: 16000,
+        numberOfChannels: 1,
+        streamPages: false,
+        monitorGain: 0,
+        recordingGain: 1,
+        sourceNode: src,
+        audioContext: ctx
+      });
+      rec.ondataavailable = (typedArray) => resolve(new Blob([typedArray], { type: 'audio/ogg' }));
+      rec.start().then(() => {
+        src.start(0);
+        const durMs = (buffer.duration * 1000) + 150;
+        setTimeout(() => rec.stop(), durMs);
+      }).catch(() => resolve(null));
     } catch(e) { console.error('bufferAOpusBlob:', e); resolve(null); }
   });
 }
 
 // ── ENVIAR ──
 async function audioEnviar() {
-  if (audEstado === 'grabando') {
+  // Si está grabando, finalizar para obtener el blob (opus-recorder ya lo entrega en Voice/16kHz)
+  if (audEstado === 'grabando' && audRecorder) {
     await new Promise(res => {
-      audMediaRecorder.onstop = () => { audBlob = new Blob(audChunks, { type: audMime || 'audio/webm' }); res(); };
+      audRecorder.ondataavailable = (typedArray) => {
+        audBlob = new Blob([typedArray], { type: 'audio/ogg' });
+        res();
+      };
       cancelAnimationFrame(audAnimFrame);
       clearInterval(audTimer);
-      audMediaRecorder.stop();
+      audRecorder.stop();
       if (audStream) audStream.getTracks().forEach(t => t.stop());
     });
   }
   if (!audBlob || !S.convActiva) { audioCancelar(); return; }
 
   const phone = S.convActiva.phone;
-  const blobAudio = audBlob;
-  const tipoReal = blobAudio.type || 'audio/webm';
+  const blobAudio = audBlob;   // YA está en formato Voice/16kHz, no hace falta recodificar
 
   const urlLocal = URL.createObjectURL(blobAudio);
   const msg = {
@@ -1644,29 +1675,11 @@ async function audioEnviar() {
   S.mensajesCache[phone].push(msg);
   audioCancelar();
   renderMensajes(phone);
-  showToast('Procesando audio...', 'warn');
-
-  // Recodificar a OGG/Opus modo VOICE 16kHz para que WhatsApp lo muestre
-  // como NOTA DE VOZ (no como adjunto). Usa opus-recorder (WASM liviano).
-  let blobFinal = blobAudio;
-  try {
-    const oggVoz = await recodificarAOpusVoz(blobAudio);
-    if (oggVoz) blobFinal = oggVoz;
-    else if (typeof webmBlobToOggBlob === 'function' && tipoReal.includes('webm')) {
-      blobFinal = await webmBlobToOggBlob(blobAudio, 1); // fallback al remux
-    }
-  } catch(e) {
-    console.warn('No se pudo recodificar a voz, usando fallback:', e);
-    try {
-      if (typeof webmBlobToOggBlob === 'function' && tipoReal.includes('webm')) {
-        blobFinal = await webmBlobToOggBlob(blobAudio, 1);
-      }
-    } catch(e2) { blobFinal = blobAudio; }
-  }
-  const nombre = `audio_${Date.now()}.ogg`;
   showToast('Subiendo audio...', 'warn');
 
-  const file = new File([blobFinal], nombre, { type: 'audio/ogg' });
+  // Subir directo (sin recodificar: el audio ya es nota de voz)
+  const nombre = `audio_${Date.now()}.ogg`;
+  const file = new File([blobAudio], nombre, { type: 'audio/ogg' });
   const r2url = await subirArchivoR2(file);
   if (r2url) {
     msg.url = r2url; msg.nombre = nombre;
@@ -1792,6 +1805,7 @@ function parchearPreSkip(bytes, nuevoPreSkip) {
 
 // ── CANCELAR ──
 function audioCancelar() {
+  if (audRecorder) { try { audRecorder.stop(); } catch(e){} audRecorder = null; }
   if (audMediaRecorder && audMediaRecorder.state !== 'inactive') { try { audMediaRecorder.stop(); } catch(e){} }
   if (audStream) audStream.getTracks().forEach(t => t.stop());
   if (audPlayer) { audPlayer.pause(); audPlayer.src = ''; }
