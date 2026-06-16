@@ -1195,44 +1195,35 @@ function iniciarAudio() {
   actualizarTiempoAudio(0);
   ocultarPlayhead();
 
-  navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
-  }).then(stream => {
-    audStream = stream;
-
-    // AudioContext + analyser para la onda en vivo
-    audAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    audSourceNode = audAudioCtx.createMediaStreamSource(stream);
-    audAnalyser = audAudioCtx.createAnalyser();
-    audAnalyser.fftSize = 1024;
-    audSourceNode.connect(audAnalyser);
-
-    // Grabar DIRECTO en formato Voice/16kHz (sin recodificar al enviar)
-    audRecorder = new Recorder({
-      encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
-      encoderApplication: 2048,   // Voice (SILK) → nota de voz
-      encoderSampleRate: 16000,   // 16 kHz como WhatsApp
-      numberOfChannels: 1,
-      streamPages: false,
-      monitorGain: 0,
-      recordingGain: 1,
-      sourceNode: audSourceNode,  // usar nuestro nodo (mismo stream que el analyser)
-      audioContext: audAudioCtx
-    });
-    audRecorder.ondataavailable = (typedArray) => {
-      audBlob = new Blob([typedArray], { type: 'audio/ogg' });
-    };
-    audRecorder.start().then(() => {
-      iniciarTimerAudio();
-      dibujarOndaEnVivo();
-    }).catch(err => {
-      console.error('opus-recorder start falló:', err);
-      showToast('No se pudo iniciar la grabación', 'error');
-      audioCancelar();
-    });
+  // opus-recorder abre el micrófono y grada directo en Voice/16kHz
+  audRecorder = new Recorder({
+    encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
+    encoderApplication: 2048,   // Voice (SILK) → nota de voz
+    encoderSampleRate: 16000,   // 16 kHz como WhatsApp
+    numberOfChannels: 1,
+    streamPages: false,
+    monitorGain: 0,
+    recordingGain: 1,
+    mediaTrackConstraints: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+  });
+  audRecorder.ondataavailable = (typedArray) => {
+    audBlob = new Blob([typedArray], { type: 'audio/ogg' });
+  };
+  audRecorder.start().then(() => {
+    // Para la onda en vivo: usar el AudioContext y sourceNode que opus-recorder creó
+    try {
+      audAudioCtx = audRecorder.audioContext;
+      if (audAudioCtx && audRecorder.sourceNode) {
+        audAnalyser = audAudioCtx.createAnalyser();
+        audAnalyser.fftSize = 1024;
+        audRecorder.sourceNode.connect(audAnalyser);
+      }
+    } catch(e) { console.warn('No se pudo conectar el analyser:', e); }
+    iniciarTimerAudio();
+    dibujarOndaEnVivo();
   }).catch(err => {
-    console.error('Error micrófono:', err.name, err.message);
-    showToast('No se pudo acceder al micrófono: ' + err.name, 'error');
+    console.error('opus-recorder start falló:', err);
+    showToast('No se pudo iniciar la grabación: ' + (err.name||err.message||''), 'error');
     audioCancelar();
   });
 }
