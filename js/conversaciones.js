@@ -1392,7 +1392,7 @@ function pausarGrabacionAudio() {
   };
   audMediaRecorder.stop();
   if (audStream) audStream.getTracks().forEach(t => t.stop());
-  if (audAudioCtx) { try { audAudioCtx.close(); } catch(e){} }
+  if (audAudioCtx && audAudioCtx.state !== "closed") { try { audAudioCtx.close(); } catch(e){} } audAudioCtx = null;
 }
 
 function reanudarGrabacionAudio() {
@@ -1739,7 +1739,7 @@ function audioCancelar() {
   if (audMediaRecorder && audMediaRecorder.state !== 'inactive') { try { audMediaRecorder.stop(); } catch(e){} }
   if (audStream) audStream.getTracks().forEach(t => t.stop());
   if (audPlayer) { audPlayer.pause(); audPlayer.src = ''; }
-  if (audAudioCtx) { try { audAudioCtx.close(); } catch(e){} }
+  if (audAudioCtx && audAudioCtx.state !== "closed") { try { audAudioCtx.close(); } catch(e){} } audAudioCtx = null;
   cancelAnimationFrame(audAnimFrame);
   clearInterval(audTimer);
   audChunks = []; audBlob = null; audSeconds = 0; audNiveles = [];
