@@ -1711,7 +1711,11 @@ async function recodificarAOpusVoz(blob) {
       });
 
       rec.ondataavailable = (typedArray) => {
-        const oggBlob = new Blob([typedArray], { type: 'audio/ogg' });
+        let bytes = new Uint8Array(typedArray);
+        // Parchear el pre-skip del OpusHead para que coincida con notas de voz reales.
+        // opus-recorder pone un pre-skip alto (3840); WhatsApp usa ~104.
+        bytes = parchearPreSkip(bytes, 104);
+        const oggBlob = new Blob([bytes], { type: 'audio/ogg' });
         try { actx.close(); } catch(e){}
         resolve(oggBlob);
       };
@@ -1732,6 +1736,57 @@ async function recodificarAOpusVoz(blob) {
       resolve(null);
     }
   });
+}
+
+// Ajusta el campo pre-skip del OpusHead y recalcula el CRC de su página OGG
+function parchearPreSkip(bytes, nuevoPreSkip) {
+  const sig = [0x4f,0x70,0x75,0x73,0x48,0x65,0x61,0x64];
+  let headIdx = -1;
+  for (let i = 0; i < bytes.length - 12; i++) {
+    let match = true;
+    for (let j = 0; j < 8; j++) { if (bytes[i+j] !== sig[j]) { match = false; break; } }
+    if (match) { headIdx = i; break; }
+  }
+  if (headIdx < 0) return bytes;
+
+  // Cambiar pre-skip (offset +10, +11 dentro del OpusHead)
+  bytes[headIdx+10] = nuevoPreSkip & 0xFF;
+  bytes[headIdx+11] = (nuevoPreSkip >> 8) & 0xFF;
+
+  // El OpusHead está dentro de la primera página OGG (que empieza con "OggS").
+  // Buscar el inicio de esa página (el OggS justo antes del OpusHead).
+  let pageStart = -1;
+  for (let i = headIdx; i >= 3; i--) {
+    if (bytes[i-1]===0x4f && bytes[i]===0x67 && bytes[i+1]===0x67 && bytes[i+2]===0x53) {
+      pageStart = i-1; break;
+    }
+  }
+  if (pageStart < 0) return bytes;
+
+  // Calcular el tamaño de la página: header (27) + nsegs + suma(seg_table) + payload
+  const nsegs = bytes[pageStart + 26];
+  let payloadLen = 0;
+  for (let s = 0; s < nsegs; s++) payloadLen += bytes[pageStart + 27 + s];
+  const pageLen = 27 + nsegs + payloadLen;
+
+  // Poner el CRC en 0 antes de recalcular (offset +22..+25)
+  bytes[pageStart+22] = 0; bytes[pageStart+23] = 0;
+  bytes[pageStart+24] = 0; bytes[pageStart+25] = 0;
+
+  // Recalcular CRC32 (polinomio Ogg 0x04c11db7, sin reflejar)
+  let crc = 0;
+  for (let i = pageStart; i < pageStart + pageLen; i++) {
+    crc ^= bytes[i] << 24;
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 0x80000000) ? ((crc << 1) ^ 0x04c11db7) : (crc << 1);
+      crc = crc >>> 0;
+    }
+  }
+  bytes[pageStart+22] = crc & 0xFF;
+  bytes[pageStart+23] = (crc >> 8) & 0xFF;
+  bytes[pageStart+24] = (crc >> 16) & 0xFF;
+  bytes[pageStart+25] = (crc >> 24) & 0xFF;
+  return bytes;
 }
 
 // ── CANCELAR ──
