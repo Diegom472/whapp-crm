@@ -1573,19 +1573,23 @@ async function audioCortar() {
     showToast('Reproducí para marcar el punto de corte', 'warn'); return;
   }
   const cutTime = audPlayer.currentTime;
-  if (cutTime <= 0.1) { showToast('Movés el cursor al punto de corte', 'warn'); return; }
+  if (cutTime <= 0.1) { showToast('Mové el cursor al punto de corte', 'warn'); return; }
   if (audPlayer) audPlayer.pause();
   showToast('Cortando...', 'warn');
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await ctx.decodeAudioData(await audBlob.arrayBuffer());
+    // 1) Decodificar el audio actual a PCM
+    const ctxDec = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await ctxDec.decodeAudioData(await audBlob.arrayBuffer());
     const sr = decoded.sampleRate;
     const finFrame = Math.floor(cutTime * sr);
-    const recortado = ctx.createBuffer(decoded.numberOfChannels, finFrame, sr);
+    const recortado = ctxDec.createBuffer(decoded.numberOfChannels, finFrame, sr);
     for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
       recortado.copyToChannel(decoded.getChannelData(ch).slice(0, finFrame), ch);
     }
-    const blobRec = await bufferAOpusBlob(recortado, ctx);
+    try { ctxDec.close(); } catch(e){}
+
+    // 2) Recodificar el fragmento a OGG/Opus Voice 16kHz
+    const blobRec = await bufferAOpusBlob(recortado);
     if (blobRec) {
       audBlob = blobRec;
       const frac = cutTime / (decoded.duration || 1);
@@ -1599,22 +1603,30 @@ async function audioCortar() {
       audEstado = 'pausado';
       setBotonesPanelAudio();
       showToast('Audio cortado');
+    } else {
+      showToast('No se pudo cortar el audio', 'error');
     }
-    ctx.close();
   } catch(e) {
     console.error('Error al cortar:', e);
     showToast('No se pudo cortar el audio', 'error');
   }
 }
 
-function bufferAOpusBlob(buffer, ctx) {
-  // Recodifica un AudioBuffer recortado a OGG/Opus modo Voice 16kHz
-  // (mismo formato que la grabación, para que siga siendo nota de voz)
+// Recodifica un AudioBuffer a OGG/Opus modo Voice 16kHz usando opus-recorder.
+// API correcta: se pasa un MediaStreamAudioSourceNode al método start().
+function bufferAOpusBlob(buffer) {
   return new Promise((resolve) => {
+    let ac = null;
     try {
       if (typeof Recorder === 'undefined') { resolve(null); return; }
-      const src = ctx.createBufferSource();
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = ac.createMediaStreamDestination();
+      const src = ac.createBufferSource();
       src.buffer = buffer;
+      src.connect(dest);
+      // Crear un sourceNode a partir del stream del destino
+      const sourceNode = ac.createMediaStreamSource(dest.stream);
+
       const rec = new Recorder({
         encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
         encoderApplication: 2048,
@@ -1622,17 +1634,30 @@ function bufferAOpusBlob(buffer, ctx) {
         numberOfChannels: 1,
         streamPages: false,
         monitorGain: 0,
-        recordingGain: 1,
-        sourceNode: src,
-        audioContext: ctx
+        recordingGain: 1
       });
-      rec.ondataavailable = (typedArray) => resolve(new Blob([typedArray], { type: 'audio/ogg' }));
-      rec.start().then(() => {
+      let resuelto = false;
+      const finalizar = (blob) => {
+        if (resuelto) return; resuelto = true;
+        try { ac.close(); } catch(e){}
+        resolve(blob);
+      };
+      rec.ondataavailable = (typedArray) => finalizar(new Blob([typedArray], { type: 'audio/ogg' }));
+
+      // Pasar el sourceNode a start()
+      rec.start(sourceNode).then(() => {
         src.start(0);
-        const durMs = (buffer.duration * 1000) + 150;
-        setTimeout(() => rec.stop(), durMs);
-      }).catch(() => resolve(null));
-    } catch(e) { console.error('bufferAOpusBlob:', e); resolve(null); }
+        const durMs = (buffer.duration * 1000) + 250;
+        setTimeout(() => { try { rec.stop(); } catch(e){} }, durMs);
+      }).catch((err) => {
+        console.warn('rec.start corte falló:', err);
+        finalizar(null);
+      });
+    } catch(e) {
+      console.error('bufferAOpusBlob:', e);
+      try { if (ac) ac.close(); } catch(e2){}
+      resolve(null);
+    }
   });
 }
 
