@@ -1143,6 +1143,8 @@ let audPlayer        = null;     // <audio> para reproducir
 let audReproducidoUnaVez = false;
 let audScrollOffset = 0;   // desplazamiento manual de la onda (en px lógicos)
 let audScrollManual = false; // true cuando el usuario movió el scroll a mano
+let audFragmentos = [];    // fragmentos OGG grabados (uno por cada tramo entre pausas)
+let audNivelesTotal = [];  // niveles acumulados de todos los fragmentos (para la onda)
 
 // Onda tipo WhatsApp: cada barra = un fragmento fijo de tiempo, ancho fijo en px
 const AUD_BAR_W   = 3;     // ancho de cada barra (px lógicos) — más finas
@@ -1161,16 +1163,17 @@ function audioMicToggle() {
 }
 
 function setMicBtn(modo) {
-  // modo: 'mic' | 'pause'
+  // modo: 'mic' (grabar/continuar) | 'pause'
   const btn = document.getElementById('btn-audio');
   if (!btn) return;
+  btn.style.opacity = '';
   if (modo === 'pause') {
     btn.innerHTML = '<i class="ti ti-player-pause-filled"></i>';
     btn.title = 'Pausar grabación';
     btn.classList.add('recording');
   } else {
     btn.innerHTML = '<i class="ti ti-microphone"></i>';
-    btn.title = 'Grabar / seguir grabando';
+    btn.title = 'Continuar grabando';
     btn.classList.remove('recording');
   }
 }
@@ -1186,20 +1189,24 @@ function iniciarAudio() {
   if (typeof Recorder === 'undefined') {
     showToast('Falta el módulo de audio (opus-recorder)', 'error'); return;
   }
-  audChunks = []; audSeconds = 0; audNiveles = []; audReproducidoUnaVez = false;
-  audBlob = null;
+  // Grabación NUEVA: resetear todo
+  audChunks = []; audSeconds = 0; audNiveles = []; audNivelesTotal = [];
+  audFragmentos = []; audReproducidoUnaVez = false; audBlob = null;
   audEstado = 'grabando';
   mostrarBarraAudio();
   setMicBtn('pause');
   setBotonesPanelAudio();
   actualizarTiempoAudio(0);
   ocultarPlayhead();
+  arrancarTramo();
+}
 
-  // opus-recorder abre el micrófono y grada directo en Voice/16kHz
+// Inicia un tramo de grabación (nuevo o tras reanudar). No resetea fragmentos.
+function arrancarTramo() {
   audRecorder = new Recorder({
     encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
-    encoderApplication: 2048,   // Voice (SILK) → nota de voz
-    encoderSampleRate: 16000,   // 16 kHz como WhatsApp
+    encoderApplication: 2048,
+    encoderSampleRate: 16000,
     numberOfChannels: 1,
     streamPages: false,
     monitorGain: 0,
@@ -1207,10 +1214,14 @@ function iniciarAudio() {
     mediaTrackConstraints: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
   });
   audRecorder.ondataavailable = (typedArray) => {
-    audBlob = new Blob([typedArray], { type: 'audio/ogg' });
+    // Guardar este tramo como un fragmento OGG
+    if (typedArray && typedArray.length > 0) {
+      audFragmentos.push(new Blob([typedArray], { type: 'audio/ogg' }));
+    }
+    // Si quedó pendiente una acción tras detener el tramo, ejecutarla
+    if (typeof audPostStop === 'function') { const fn = audPostStop; audPostStop = null; fn(); }
   };
   audRecorder.start().then(() => {
-    // Para la onda en vivo: usar el AudioContext y sourceNode que opus-recorder creó
     try {
       audAudioCtx = audRecorder.audioContext;
       if (audAudioCtx && audRecorder.sourceNode) {
@@ -1227,6 +1238,7 @@ function iniciarAudio() {
     audioCancelar();
   });
 }
+let audPostStop = null;
 
 function arrancarAnalisis(stream) {
   // (compatibilidad; el analyser ahora se arma en iniciarAudio)
@@ -1398,34 +1410,71 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
 }
 
-// ── PAUSAR / REANUDAR (desde el micrófono) ──
+// ── PAUSAR: detiene el tramo actual y lo guarda como fragmento ──
 function pausarGrabacionAudio() {
   if (!audRecorder) return;
   cancelAnimationFrame(audAnimFrame);
   clearInterval(audTimer);
-  // opus-recorder: pause() detiene la captura sin cerrar el archivo.
-  // Para poder reproducir lo grabado hasta ahora, finalizamos con stop()
-  // y guardamos el blob; al reanudar arrancamos uno nuevo y concatenamos.
-  audRecorder.ondataavailable = (typedArray) => {
-    audBlob = new Blob([typedArray], { type: 'audio/ogg' });
+  // Cuando el tramo termine (ondataavailable lo guarda en audFragmentos),
+  // armamos el blob combinado para poder reproducir.
+  audPostStop = async () => {
     audEstado = 'pausado';
     setMicBtn('mic');
     setBotonesPanelAudio();
+    await combinarFragmentos();   // arma audBlob con todo lo grabado
     prepararPlayerAudio();
     pintarOnda(audNiveles, -1);
   };
-  audRecorder.stop();
-  if (audStream) audStream.getTracks().forEach(t => t.stop());
+  try { audRecorder.stop(); } catch(e){ console.warn(e); }
   if (audAudioCtx && audAudioCtx.state !== "closed") { try { audAudioCtx.close(); } catch(e){} }
   audAudioCtx = null;
 }
 
+// ── REANUDAR: continúa grabando un tramo nuevo (se suma a los anteriores) ──
 function reanudarGrabacionAudio() {
-  // Nota: por simplicidad, "seguir grabando" arranca una grabación nueva.
-  // (Si ya había audio previo, se reemplaza — igual que el flujo anterior.)
   if (audPlayer) { audPlayer.pause(); }
   ocultarPlayhead();
-  iniciarAudio();
+  audEstado = 'grabando';
+  audReproducidoUnaVez = false;
+  setMicBtn('pause');
+  setBotonesPanelAudio();
+  arrancarTramo();   // NO resetea fragmentos ni niveles: continúa
+}
+
+// Combina todos los fragmentos OGG en un solo audBlob (decodifica y reune el PCM)
+async function combinarFragmentos() {
+  if (!audFragmentos.length) { audBlob = null; return; }
+  if (audFragmentos.length === 1) { audBlob = audFragmentos[0]; return; }
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    // Decodificar cada fragmento
+    const buffers = [];
+    for (const frag of audFragmentos) {
+      try {
+        const buf = await ac.decodeAudioData(await frag.arrayBuffer());
+        buffers.push(buf);
+      } catch(e) { console.warn('Fragmento no decodificable, se omite:', e); }
+    }
+    if (!buffers.length) { audBlob = audFragmentos[0]; try{ac.close();}catch(e){} return; }
+    // Concatenar el PCM
+    const sr = buffers[0].sampleRate;
+    const canales = 1;
+    const totalFrames = buffers.reduce((s,b)=>s+b.length,0);
+    const combinado = ac.createBuffer(canales, totalFrames, sr);
+    const out = combinado.getChannelData(0);
+    let offset = 0;
+    for (const b of buffers) {
+      out.set(b.getChannelData(0), offset);
+      offset += b.length;
+    }
+    // Recodificar el buffer combinado a OGG Voice
+    const blob = await bufferAOpusBlob(combinado);
+    audBlob = blob || audFragmentos[audFragmentos.length-1];
+    try { ac.close(); } catch(e){}
+  } catch(e) {
+    console.error('Error combinando fragmentos:', e);
+    audBlob = audFragmentos[audFragmentos.length-1];
+  }
 }
 
 // ── REPRODUCIR (Play/Stop del panel) ──
@@ -1613,19 +1662,22 @@ async function audioCortar() {
 }
 
 // Recodifica un AudioBuffer a OGG/Opus modo Voice 16kHz usando opus-recorder.
-// API correcta: se pasa un MediaStreamAudioSourceNode al método start().
-function bufferAOpusBlob(buffer) {
+// API: se pasa un MediaStreamAudioSourceNode al método start().
+async function bufferAOpusBlob(buffer) {
+  if (typeof Recorder === 'undefined') return null;
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') { try { await ac.resume(); } catch(e){} }
+
   return new Promise((resolve) => {
-    let ac = null;
+    let resuelto = false;
+    const finalizar = (blob) => {
+      if (resuelto) return; resuelto = true;
+      try { ac.close(); } catch(e){}
+      resolve(blob);
+    };
     try {
-      if (typeof Recorder === 'undefined') { resolve(null); return; }
-      ac = new (window.AudioContext || window.webkitAudioContext)();
-      const dest = ac.createMediaStreamDestination();
       const src = ac.createBufferSource();
       src.buffer = buffer;
-      src.connect(dest);
-      // Crear un sourceNode a partir del stream del destino
-      const sourceNode = ac.createMediaStreamSource(dest.stream);
 
       const rec = new Recorder({
         encoderPath: 'https://cdnjs.cloudflare.com/ajax/libs/opus-recorder/8.0.5/encoderWorker.min.js',
@@ -1636,46 +1688,39 @@ function bufferAOpusBlob(buffer) {
         monitorGain: 0,
         recordingGain: 1
       });
-      let resuelto = false;
-      const finalizar = (blob) => {
-        if (resuelto) return; resuelto = true;
-        try { ac.close(); } catch(e){}
-        resolve(blob);
-      };
       rec.ondataavailable = (typedArray) => finalizar(new Blob([typedArray], { type: 'audio/ogg' }));
 
-      // Pasar el sourceNode a start()
-      rec.start(sourceNode).then(() => {
+      // Pasar el BufferSource directamente como sourceNode a start()
+      rec.start(src).then(() => {
         src.start(0);
-        const durMs = (buffer.duration * 1000) + 250;
-        setTimeout(() => { try { rec.stop(); } catch(e){} }, durMs);
+        const durMs = (buffer.duration * 1000) + 400;
+        // Detener cuando el buffer termine de reproducirse
+        src.onended = () => setTimeout(() => { try { rec.stop(); } catch(e){} }, 150);
+        setTimeout(() => { try { rec.stop(); } catch(e){} }, durMs + 500); // respaldo
       }).catch((err) => {
         console.warn('rec.start corte falló:', err);
         finalizar(null);
       });
     } catch(e) {
       console.error('bufferAOpusBlob:', e);
-      try { if (ac) ac.close(); } catch(e2){}
-      resolve(null);
+      finalizar(null);
     }
   });
 }
 
 // ── ENVIAR ──
 async function audioEnviar() {
-  // Si está grabando, finalizar para obtener el blob (opus-recorder ya lo entrega en Voice/16kHz)
+  // Si está grabando, finalizar el tramo actual (se guarda en audFragmentos)
   if (audEstado === 'grabando' && audRecorder) {
     await new Promise(res => {
-      audRecorder.ondataavailable = (typedArray) => {
-        audBlob = new Blob([typedArray], { type: 'audio/ogg' });
-        res();
-      };
+      audPostStop = res;
       cancelAnimationFrame(audAnimFrame);
       clearInterval(audTimer);
-      audRecorder.stop();
-      if (audStream) audStream.getTracks().forEach(t => t.stop());
+      try { audRecorder.stop(); } catch(e){ res(); }
     });
   }
+  // Combinar todos los fragmentos grabados en un solo audio
+  await combinarFragmentos();
   if (!audBlob || !S.convActiva) { audioCancelar(); return; }
 
   const phone = S.convActiva.phone;
@@ -1829,6 +1874,7 @@ function audioCancelar() {
   cancelAnimationFrame(audAnimFrame);
   clearInterval(audTimer);
   audChunks = []; audBlob = null; audSeconds = 0; audNiveles = [];
+  audFragmentos = []; audNivelesTotal = []; audPostStop = null;
   audEstado = 'idle'; audReproducidoUnaVez = false;
   document.getElementById('audio-bar')?.classList.remove('active');
   setMicBtn('mic');
