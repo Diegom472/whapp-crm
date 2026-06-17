@@ -1145,6 +1145,7 @@ let audScrollOffset = 0;   // desplazamiento manual de la onda (en px lógicos)
 let audScrollManual = false; // true cuando el usuario movió el scroll a mano
 let audFragmentos = [];    // fragmentos OGG grabados (uno por cada tramo entre pausas)
 let audNivelesTotal = [];  // niveles acumulados de todos los fragmentos (para la onda)
+let audPostStop = null;    // callback a ejecutar tras detener un tramo
 
 // Onda tipo WhatsApp: cada barra = un fragmento fijo de tiempo, ancho fijo en px
 const AUD_BAR_W   = 3;     // ancho de cada barra (px lógicos) — más finas
@@ -1238,7 +1239,6 @@ function arrancarTramo() {
     audioCancelar();
   });
 }
-let audPostStop = null;
 
 function arrancarAnalisis(stream) {
   // (compatibilidad; el analyser ahora se arma en iniciarAudio)
