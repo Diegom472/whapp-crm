@@ -1441,39 +1441,20 @@ function reanudarGrabacionAudio() {
   arrancarTramo();   // NO resetea fragmentos ni niveles: continúa
 }
 
-// Combina todos los fragmentos OGG en un solo audBlob (decodifica y reune el PCM)
+// Combina todos los fragmentos OGG en un solo audBlob.
+// Une los paquetes Opus directamente (sin recodificar) → confiable y rápido.
 async function combinarFragmentos() {
   if (!audFragmentos.length) { audBlob = null; return; }
   if (audFragmentos.length === 1) { audBlob = audFragmentos[0]; return; }
   try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    // Decodificar cada fragmento
-    const buffers = [];
-    for (const frag of audFragmentos) {
-      try {
-        const buf = await ac.decodeAudioData(await frag.arrayBuffer());
-        buffers.push(buf);
-      } catch(e) { console.warn('Fragmento no decodificable, se omite:', e); }
+    if (typeof concatenarOggBlobs === 'function') {
+      audBlob = await concatenarOggBlobs(audFragmentos, 1);
+    } else {
+      audBlob = audFragmentos[audFragmentos.length - 1];
     }
-    if (!buffers.length) { audBlob = audFragmentos[0]; try{ac.close();}catch(e){} return; }
-    // Concatenar el PCM
-    const sr = buffers[0].sampleRate;
-    const canales = 1;
-    const totalFrames = buffers.reduce((s,b)=>s+b.length,0);
-    const combinado = ac.createBuffer(canales, totalFrames, sr);
-    const out = combinado.getChannelData(0);
-    let offset = 0;
-    for (const b of buffers) {
-      out.set(b.getChannelData(0), offset);
-      offset += b.length;
-    }
-    // Recodificar el buffer combinado a OGG Voice
-    const blob = await bufferAOpusBlob(combinado);
-    audBlob = blob || audFragmentos[audFragmentos.length-1];
-    try { ac.close(); } catch(e){}
   } catch(e) {
     console.error('Error combinando fragmentos:', e);
-    audBlob = audFragmentos[audFragmentos.length-1];
+    audBlob = audFragmentos[audFragmentos.length - 1];
   }
 }
 
@@ -1481,7 +1462,13 @@ async function combinarFragmentos() {
 function prepararPlayerAudio() {
   if (!audBlob) return;
   if (!audPlayer) audPlayer = new Audio();
-  audPlayer.src = URL.createObjectURL(audBlob);
+  // Revocar URL anterior para evitar fugas y reproducciones inválidas
+  if (audPlayer._url) { try { URL.revokeObjectURL(audPlayer._url); } catch(e){} }
+  const url = URL.createObjectURL(audBlob);
+  audPlayer._url = url;
+  audPlayer.src = url;
+  audPlayer.load();
+  audReproducidoUnaVez = false;   // permitir reproducir desde el inicio otra vez
   audPlayer.onended = () => {
     audEstado = 'pausado';
     setBotonesPanelAudio();
@@ -1491,7 +1478,7 @@ function prepararPlayerAudio() {
   audPlayer.ontimeupdate = () => {
     if (audPlayer.duration && isFinite(audPlayer.duration)) {
       const frac = audPlayer.currentTime / audPlayer.duration;
-      pintarOnda(audNiveles, frac);          // dibuja onda desplazada + playhead
+      pintarOnda(audNiveles, frac);
       actualizarTiempoAudio(audPlayer.currentTime);
     }
   };
@@ -1503,18 +1490,20 @@ function audioReproducir() {
   if (!audPlayer) return;
 
   if (audEstado === 'reproduciendo') {
+    // Stop: detener donde esté
     audPlayer.pause();
     audEstado = 'pausado';
     setBotonesPanelAudio();
   } else {
-    if (!audReproducidoUnaVez) {
+    // Play: si terminó o no se reprodujo, arranca del inicio
+    if (!audReproducidoUnaVez || audPlayer.ended || audPlayer.currentTime >= (audPlayer.duration || 0) - 0.05) {
       audPlayer.currentTime = 0;
       audReproducidoUnaVez = true;
     }
     audEstado = 'reproduciendo';
-    audScrollManual = false;   // al reproducir, la onda vuelve a seguir el playhead
+    audScrollManual = false;
     setBotonesPanelAudio();
-    audPlayer.play();
+    audPlayer.play().catch(e => console.warn('play falló:', e));
   }
 }
 

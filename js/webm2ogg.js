@@ -216,5 +216,76 @@
     return new Blob([out], { type: 'audio/ogg' });
   }
 
+  // Extrae los paquetes Opus de un OGG/Opus (saltea OpusHead y OpusTags)
+  function extraerPaquetesOgg(buf) {
+    const paquetes = [];
+    let pos = 0;
+    let pagina = 0;
+    while (pos < buf.length - 27) {
+      if (!(buf[pos]===0x4f && buf[pos+1]===0x67 && buf[pos+2]===0x67 && buf[pos+3]===0x53)) {
+        pos++; continue;
+      }
+      const nsegs = buf[pos+26];
+      const segTable = [];
+      for (let i = 0; i < nsegs; i++) segTable.push(buf[pos+27+i]);
+      let dataPos = pos + 27 + nsegs;
+      // Reconstruir paquetes según la tabla de segmentos (lacing)
+      let pktLen = 0;
+      for (let i = 0; i < nsegs; i++) {
+        pktLen += segTable[i];
+        if (segTable[i] < 255) {
+          // fin de paquete
+          if (pagina >= 2 && pktLen > 0) {  // saltear páginas 0 (OpusHead) y 1 (OpusTags)
+            paquetes.push(buf.subarray(dataPos, dataPos + pktLen));
+          }
+          dataPos += pktLen;
+          pktLen = 0;
+        }
+      }
+      if (pktLen > 0 && pagina >= 2) {
+        paquetes.push(buf.subarray(dataPos, dataPos + pktLen));
+        dataPos += pktLen;
+      }
+      pos = dataPos;
+      pagina++;
+    }
+    return paquetes;
+  }
+
+  // Une varios blobs OGG/Opus (mismo formato) en uno solo, sin recodificar
+  async function concatenarOggBlobs(blobs, channels) {
+    channels = channels || 1;
+    let todosPaquetes = [];
+    for (const blob of blobs) {
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      const pkts = extraerPaquetesOgg(buf);
+      todosPaquetes = todosPaquetes.concat(pkts);
+    }
+    if (!todosPaquetes.length) throw new Error('No se encontraron paquetes Opus');
+
+    const serial = (Math.random() * 0xFFFFFFFF) >>> 0;
+    const pages = [];
+    let seq = 0;
+    pages.push(buildOggPage([opusHead(channels)], 0x02, 0, serial, seq++));
+    pages.push(buildOggPage([opusTags()], 0x00, 0, serial, seq++));
+
+    let granule = 0;
+    const PAQUETES_POR_PAGINA = 50;
+    for (let i = 0; i < todosPaquetes.length; i += PAQUETES_POR_PAGINA) {
+      const grupo = todosPaquetes.slice(i, i + PAQUETES_POR_PAGINA);
+      for (const pkt of grupo) granule += opusSamplesPorPaquete(pkt);
+      const esUltima = (i + PAQUETES_POR_PAGINA >= todosPaquetes.length);
+      pages.push(buildOggPage(grupo, esUltima ? 0x04 : 0x00, granule, serial, seq++));
+    }
+
+    let total = 0;
+    for (const p of pages) total += p.length;
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of pages) { out.set(p, off); off += p.length; }
+    return new Blob([out], { type: 'audio/ogg' });
+  }
+
   global.webmBlobToOggBlob = webmBlobToOggBlob;
+  global.concatenarOggBlobs = concatenarOggBlobs;
 })(window);
